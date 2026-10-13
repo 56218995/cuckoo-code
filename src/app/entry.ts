@@ -62,7 +62,7 @@ import { isSubagentWindow, pushGoalDone } from './goal.js';
 import { injectSessionTitleSetter } from '../tools/impl/name-conversation.js';
 import { pushUrlState } from './ipc/shell.js';
 import { pushHarnessState, stopGeneration } from './ipc/harness.js';
-import { injectWindowGroupDeps, requestShareFromWindow } from './ipc/window-groups.js';
+import { injectWindowGroupDeps, requestSwitchShare } from './ipc/window-groups.js';
 import { initProject } from '../session/project-context.js';
 import * as windowGroups from './window-groups.js';
 
@@ -880,8 +880,8 @@ async function runSwitchForGroup(groupId: string, fromProfileId: string): Promis
     // 3) 停掉当前窗口的生成 + 工具调用
     try { await stopGeneration(cur); } catch (_) { /* ignore */ }
 
-    // 4) 请求源窗口分享当前对话（全量）
-    const share = await requestShareFromWindow(curWindowId);
+    // 4) 请求源窗口准备转移分享（清 IDB + 刷新 + 等重写 → 全量分享；复用压缩的重写逻辑）
+    const share = await requestSwitchShare(curWindowId);
     if (!share || !share.ok || !share.shareId) {
       try { cur.view.webContents.send('harness-resume-retry'); } catch (_) { /* ignore */ }
       return { success: false, error: (share && share.error) || '分享失败' };

@@ -27,5 +27,6 @@
 | 021 | feature | [窗口组（多账号限流轮换）](./021-window-groups.md) | done | feat/021-window-groups | 2026-10-05 |
 | 022 | feature | [DSH 插件兼容（Cuckoo 里安装/运行 DSH 插件）](./022-dsh-plugin-compat.md) | in_progress | direct-on-master（直接 master 提交） | 2026-10-08 |
 | 023 | fix | [ChatGPT 初始化填入失败 + 工具结果发送失败（含上下文耗尽自动续接）](./023-chatgpt-input-send.md) | done | fix/023-chatgpt-input-send | 2026-10-13 |
+| 024 | fix | [窗口组转移复用 IDB 重写 + 上下文耗尽续接补发工具结果](./024-switch-idb-context-resume.md) | review | fix/024-switch-idb-context-resume | 2026-10-14 |
 
-共 22 个需求。
+共 23 个需求。
