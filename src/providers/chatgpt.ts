@@ -57,32 +57,64 @@ const chatgpt = {
   // "粘贴的文件"附件（出现 .txt 卡片），文本区却为空 → 发送空内容。
   // 改用 execCommand('insertText') 直接写文本节点，与真实打字等价。
   fillInput(input: any, text: string) {
-    try {
-      input.focus();
-      // 清空现有内容
+    // ChatGPT 的 ProseMirror 会在「同一条流内」多次下发；填入用 execCommand('insertText')。
+    // ⚠️ 页面导航/重渲染期间（如初始化时新建会话），execCommand 会「静默失败」
+    //   （返回 false，或写进去被 React 冲掉）→ 必须读回校验 + 内部密集探测重试，
+    //   否则会退化成外层 500ms×N 的硬等（初始化等待 10s+）。
+    const probe = text.replace(/\s+/g, '');
+
+    // 单次写入尝试：清空 → 分段插入 → 读回校验
+    const writeOnce = (): boolean => {
       try {
-        const sel = window.getSelection();
-        if (sel) {
-          const range = document.createRange();
-          range.selectNodeContents(input);
-          sel.removeAllRanges();
-          sel.addRange(range);
-          document.execCommand('delete', false, undefined);
+        input.focus();
+        // 清空现有内容
+        try {
+          const sel = window.getSelection();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNodeContents(input);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            document.execCommand('delete', false, undefined);
+          }
+        } catch (_) {}
+        // 分段插入（长文本 execCommand 单次可能失败）
+        const CHUNK = 5000;
+        for (let i = 0; i < text.length; i += CHUNK) {
+          document.execCommand('insertText', false, text.slice(i, i + CHUNK));
         }
-      } catch (_) {}
-      // 分段插入（长文本 execCommand 可能失败）
-      const CHUNK = 5000;
-      for (let i = 0; i < text.length; i += CHUNK) {
-        const chunk = text.slice(i, i + CHUNK);
-        const ok = document.execCommand('insertText', false, chunk);
-        if (!ok && i === 0) return false; // 首次就失败 → 回退 paste 逻辑
+        // 读回校验：去空白后长度 ≥ 期望的 90%
+        const written = String(input.innerText || input.textContent || '').replace(/\s+/g, '');
+        return written.length >= probe.length * 0.9;
+      } catch (_) {
+        return false;
       }
-      // 触发一次 input 让框架感知
-      try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
-      return true;
-    } catch (_) {
-      return false;
-    }
+    };
+
+    return (async () => {
+      // 内部密集探测：每 200ms 一次，页面一稳定立即成功；上限 3s 后交回外层。
+      // 正常情况首次即成功（无额外开销），仅导航期才进入重试分支。
+      const deadline = Date.now() + 3000;
+      let attempt = 0;
+      for (;;) {
+        // input 被 React 替换（脱离 DOM）→ 重试无意义，立即交回外层重新查找
+        if (!input.isConnected) {
+          if (attempt > 0) console.warn('[Cuckoo Code][chatgpt.fillInput] input 已脱离 DOM，交回外层');
+          return false;
+        }
+        if (writeOnce()) {
+          try { input.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+          if (attempt > 0) console.warn('[Cuckoo Code][chatgpt.fillInput] 第 ' + attempt + ' 次重试后填入成功');
+          return true;
+        }
+        attempt++;
+        if (Date.now() >= deadline) {
+          console.warn('[Cuckoo Code][chatgpt.fillInput] 3s 内未填入成功，交回外层重试');
+          return false;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    })();
   },
 
   // 触发发送：ChatGPT 的 ProseMirror 输入框只认**真实键盘事件**（合成 KeyboardEvent
