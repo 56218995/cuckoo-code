@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.8.13] - 2026-10-13
+
+### Added
+- **工具结果末尾追加提醒**：工具执行结果回传时，消息末尾追加「需要给结果或需要用户确认时不要调用工具」的提醒，避免 AI 在本该给结论/该问用户时仍继续调工具。
+
+### Fixed
+- **ChatGPT 工具循环稳定**：修复同一条 SSE 流内多条 assistant 消息文本交错、重放帧重复应用导致文本翻倍、6 反引号围栏解析失败等问题（表现为「有 cuckoo 块却不执行」）。
+  - hook 按 assistant 消息 id 分段累积，避免跨消息文本交错。
+  - 只累积正文消息（channel 为 final/null、recipient 为 all/null），排除过程说明消息。
+  - 正文 append 全局去重（服务端重放帧，重复帧间可能夹着其它操作，紧邻去重会失效）。
+  - 围栏按实际反引号数剥离（Markdown 规范允许 3+ 个，兼容 6 反引号场景）。
+- **ChatGPT 初始化填入失败**：`findInput` 改用 `querySelectorAll` 遍历，返回第一个**可见**输入框（页面存在多个 ProseMirror，旧代码命中隐藏元素导致填入静默失败）。
+- **ChatGPT 工具结果发送失败**：`triggerSend` 优先真实鼠标点击发送按钮（不受焦点影响），按钮延迟就绪时循环重试（最多 10 次，交替点击/Enter）。
+- **ChatGPT 填入读回校验**：`fillInput` 写入后读回校验（≥ 期望长度 90%），失败返回 false 让上层重试。
+- **退出/更新重启跳过逐窗口关闭确认**：应用退出或自动更新重启时不再逐窗口弹框确认。
+
+### Changed
+- 开发调试端口默认改为 9334（与项目级 MCP playwright-cuckoo 的 CDP 端点一致）。
+
+### Internal
+- 新增上下文耗尽自动续接链路（hook 检测 `conversation_detail_metadata.banner_info` → bridge → IPC → 导航首页 + 保持项目目录）。**真机未验证触发**，详见 023 需求档案。
+
 ## [0.8.12] - 2026-10-13
 
 ### Added
