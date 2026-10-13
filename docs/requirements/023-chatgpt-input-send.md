@@ -1,7 +1,7 @@
 ---
 id: 023
 type: fix
-title: ChatGPT 初始化填入失败 + 工具结果发送失败
+title: ChatGPT 初始化填入失败 + 工具结果发送失败（含上下文耗尽自动续接）
 status: review
 branch: fix/023-chatgpt-input-send
 created: 2026-10-13
@@ -18,10 +18,19 @@ ChatGPT 平台出现两个阻断性问题：
 2. **工具执行完，回传结果卡在输入框发不出去**
    - 日志：`已通过站点原生发送触发` 之后无后续（消息实际没发出去）。
 
+进一步排查发现「发不出去」可能有两种成因，本需求一并覆盖：
+
+- (a) 填入/焦点问题（已定位并修复，见方案一/二/三）
+- (b) **会话上下文耗尽**：ChatGPT 提示「聊天上下文已用完」后拒绝继续发送，
+  工具结果卡在输入框。需检测该状态并**自动新开会话 + 保留项目目录**，否则项目目录丢失、
+  后续工具调用拿不到 projectDir。
+
 ## 目标
 
 - ChatGPT 初始化时系统提示词能**快速、可靠**填入并发出
 - 工具执行结果回传后能**自动发出**（不再卡在输入框）
+- **上下文耗尽时自动新开会话，并自动用原项目目录初始化**（projectDir 不丢）；
+  覆盖两种时机：① 工具结果发不出时 ② AI 回复完但无工具调用、恰好撞上耗尽时
 
 ## 方案
 
@@ -53,20 +62,35 @@ ChatGPT 平台出现两个阻断性问题：
 `src/providers/chatgpt.ts` `fillInput`：写入后读回校验（去空白长度 ≥ 期望的 90%），
 失败返回 false（而非无条件 true），让上层重试。
 
+### 四、上下文耗尽 → 自动新开会话 + 保留项目目录（待实现）
+
+**复用现有能力**：`new-conversation-for-project` IPC（`src/app/ipc/session.ts`）**已实现**——
+导航到平台首页 + `did-finish-load` 后自动 `initProject(projectDir)`。本功能只需：
+**检测信号 → 调用该 IPC**。
+
+**检测**：识别「聊天上下文已用完」提示（DOM 文案，如「聊天上下文已用完」/「Your context is full」），
+或检测「发送后输入框不清空且无回复」。
+
+**触发**：在 `overlay`/`bridge` 检测到信号 → 调 `electronAPI.newConversationForProject(projectDir)`；
+projectDir 从当前 sessionStore 取。
+
 ## 验收标准
 
 - [ ] ChatGPT 初始化项目：系统提示词快速填入并发出（不再卡 10s+ / 放弃）
 - [ ] ChatGPT 工具执行：结果自动发出（不再卡在输入框）
+- [ ] 上下文耗尽时自动开新会话并保留 projectDir（两种时机均覆盖）
+- [ ] 新会话能正常调用工具（projectDir 未丢）
 - [x] typecheck / compile / test（873 passed）全绿
 
 真机验证方式：重启应用 → ChatGPT 窗口初始化项目 + 触发工具调用，观察行为与日志。
 
 ## 遗留 / 后续
 
-- **问题 2（已记录未修）**：初始化浮动窗口出现「全选/框选」感——疑与 `execCommand('selectAll')` /
+- **问题：初始化浮动窗口出现「全选/框选」感**——疑与 `execCommand('selectAll')` /
   `selectNodeContents(input)` 有关（选中输入框全部内容时可见高亮），待验证。
 - **SSE delta 协议完整性**：ChatGPT 用 `delta_encoding: v1`（增量 delta，前端 applyDelta 按 per-channel 累积）；
   当前 hook 用朴素累加，单样本实测可行，但 `remove`/`truncate`/嵌套 patch/per-channel 隔离未实现，
   需多场景采样（重新生成/停止/长回复）后再决定是否补全。
 - 详细排查记录见 `docs/prompts/chatgpt-test-log.md`（本地，未入库）。
 - `chat-input.ts` 兜底的 `querySelector('div[contenteditable...]')`（L271）有同样的「多匹配」隐患，本次未改。
+- 上下文耗尽的检测方式可靠性待真机验证（DOM 文案各平台不同）；是否同步 DeepSeek/Claude 待定。
