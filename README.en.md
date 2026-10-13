@@ -335,6 +335,7 @@ This project is licensed under the GNU General Public License v3.0. See the LICE
   - **Provider-customizable tool-result format**: new optional `transformToolResult` hook lets plugins customize the text format before tool results are sent back (PR #34)
 - [@ZiJiangel](https://github.com/ZiJiangel):
   - **Feishu Markdown card**: AI replies pushed to Feishu now render Markdown (including tables) via interactive cards (PR #35)
+  - **Executable plugin system + theme system**: executable plugin runtime (function / object / class plugin forms, 5 event dispatches, service provide/inject, reversible effects, assets, tool registration), theme system `ctx.theme` (main-process authoritative + IPC proxy + `--ck-*` tokens + custom title bar + persistence), UI primitives (overlay / shell mount / slot / addStyle) (PR #36)
 - [@yangjh888](https://github.com/yangjh888):
   - **Full ChatGPT logged-in support**: reply interception rewritten as three-state (finished/stopped/error), fixed bare `{v:[...]}` SSE delta-frame parsing, `fillInput` (execCommand) + `triggerSend` (real Enter) for ProseMirror input/send, Google OAuth fingerprint fixes (Sec-CH-UA* / userAgentData / webdriver) (PR #47)
 - [@brownie19850318](https://github.com/brownie19850318):
