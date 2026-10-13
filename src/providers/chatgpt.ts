@@ -117,22 +117,44 @@ const chatgpt = {
     })();
   },
 
-  // 触发发送：ChatGPT 的 ProseMirror 输入框只认**真实键盘事件**（合成 KeyboardEvent
-  // 无效，站点免疫），且发送按钮在输入框为空时不存在（选择器不稳定）。
-  // 故走主进程 sendInputEvent 派发真实级 Enter（isTrusted=true），与人工按键等价。
+  // 触发发送。ChatGPT 的 ProseMirror 免疫合成 KeyboardEvent；
+  // 且**主进程 sendInputEvent 的键盘事件依赖页面有焦点**——用户焦点在壳窗口/别的窗口时
+  // （document.hasFocus() === false），Enter 会送不到页面 → 消息发不出去。
+  // 故优先用**真实鼠标点击发送按钮**（sendInputEvent 鼠标事件不受焦点影响），
+  // 点击后校验输入框是否被清空（发送成功的标志），失败再回退 Enter / DOM click。
   async triggerSend(input: any) {
-    try {
-      if (input && typeof input.focus === 'function') {
-        try { input.focus(); } catch (_) {}
+    const api = (window as any).electronAPI;
+    // 重新查找发送按钮（发送延迟期间 DOM 可能已变化）
+    const btn = this.findSendButton ? this.findSendButton() : null;
+
+    // 1) 优先：主进程真实鼠标点击发送按钮（不受页面/窗口焦点影响）
+    if (btn && api && typeof api.simulateMouse === 'function') {
+      try {
+        if (input && typeof input.focus === 'function') { try { input.focus(); } catch (_) {} }
+        const rect = btn.getBoundingClientRect();
+        const x = Math.round(rect.left + rect.width / 2);
+        const y = Math.round(rect.top + rect.height / 2);
+        await api.simulateMouse('click', x, y);
+        // 校验：发送成功 → ChatGPT 会清空输入框
+        await new Promise((res) => setTimeout(res, 400));
+        const remaining = String((input && (input.innerText || input.textContent)) || '').replace(/\s+/g, '').length;
+        if (remaining <= 2) return true;
+        console.warn('[Cuckoo Code][chatgpt.triggerSend] 鼠标点击后输入框未清空(remaining=' + remaining + ')，转 Enter 兜底');
+      } catch (err: any) {
+        console.warn('[Cuckoo Code][chatgpt.triggerSend] 鼠标点击失败:', err && err.message);
       }
-      const api = (window as any).electronAPI;
+    }
+
+    // 2) 兜底：主进程真实 Enter（需页面有焦点）
+    try {
+      if (input && typeof input.focus === 'function') { try { input.focus(); } catch (_) {} }
       if (api && typeof api.sendEnterToChat === 'function') {
         const ok = await api.sendEnterToChat();
         if (ok) return true;
       }
-    } catch (_) { /* 回退到按钮点击 */ }
-    // 回退：发送按钮（有内容时才出现）
-    const btn = this.findSendButton ? this.findSendButton() : null;
+    } catch (_) { /* 继续回退 */ }
+
+    // 3) 最后兜底：DOM click
     if (btn) { (btn as any).click(); return true; }
     return false;
   },
