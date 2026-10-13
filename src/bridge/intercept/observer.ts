@@ -6,7 +6,7 @@
 import { extractJsToolBlocks, BT } from '../parser/js-detector.js';
 import { looksLikeJsonToolCall } from '../parser/json-detector.js';
 import { handleJsToolScript } from '../loop/executor.js';
-import { sendCombinedJsResultsToChat, sendMessageToChat, cancelPendingSend } from '../../overlay/chat-input.js';
+import { sendCombinedJsResultsToChat, sendMessageToChat, cancelPendingSend, takePendingSendText } from '../../overlay/chat-input.js';
 import { showToolMask, hideToolMask } from '../../overlay/panel.js';
 import * as watchdog from '../loop/watchdog.js';
 
@@ -312,9 +312,16 @@ function startInterceptObserver(): void {
     try {
       const detail = ev && ev.detail;
       console.log('[Cuckoo Code][拦截] 上下文已用完，请求自动在新会话续接:', JSON.stringify(detail || {}));
+      // 捞回「刚填入、未及发送」的工具结果（耗尽瞬间正卡在发送延迟里），带到新会话补发
+      let pendingText: string | null = null;
+      try {
+        cancelPendingSend();
+        pendingText = takePendingSendText();
+        if (pendingText) console.log('[Cuckoo Code][拦截] 捞回未发出的工具结果，长度=' + pendingText.length);
+      } catch (_) { /* ignore */ }
       const api = (window as any).electronAPI;
       if (api && typeof api.contextExhaustedContinue === 'function') {
-        api.contextExhaustedContinue().catch((err: any) => {
+        api.contextExhaustedContinue({ pendingText }).catch((err: any) => {
           console.error('[Cuckoo Code][拦截] 上下文续接请求失败:', err && err.message);
         });
       }
