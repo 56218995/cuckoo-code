@@ -233,6 +233,10 @@ let electronAPI: any = {
   replaceProvider: (providerId: any) => {
     return ipcRenderer.invoke('replace-provider', { providerId });
   },
+  // 上下文耗尽：请求主进程自动在新会话续接（保留当前项目目录）
+  contextExhaustedContinue: () => {
+    return ipcRenderer.invoke('context-exhausted-continue');
+  },
 };
 
 try {

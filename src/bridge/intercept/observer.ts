@@ -18,6 +18,8 @@ const FORMAT_HINT_MAX = 10;
 let lastProcessedText = '';
 // 最近一次拦截到的完整回复文本（供手动解析复用，不依赖 DOM）
 let lastInterceptedText = '';
+// [临时诊断] 最近一次回复的 dbg（含 hook 的 opLog）
+let lastRespDbg: any = null;
 // 用户请求中止：停止工具循环的回传（停止按钮触发）
 let abortRequested = false;
 function requestAbort(): void { abortRequested = true; }
@@ -86,6 +88,19 @@ async function processInterceptedResponse(text: string, force?: boolean): Promis
 
   // 1. 优先检测 JS 工具代码块（cuckoo / js 代码块）
   const jsBlocks = extractJsToolBlocks(raw);
+  // [临时诊断] 定位「有块却识别不到」——失败时落盘全文
+  try {
+    const BT3 = BT + BT + BT;
+    const fenceCount = raw.split(BT3).length - 1;
+    const hasCuckooWord = raw.indexOf('cuckoo') >= 0;
+    const fenceLangs = raw.split(String.fromCharCode(10)).map(function (l) { return l.trim(); }).filter(function (l) { return l.indexOf(BT3) === 0; }).map(function (l) { return l.slice(3).trim().split(' ')[0]; }).slice(0, 10);
+    console.log('[Cuckoo Code][诊断] 原文特征: 长度=' + raw.length + ' 围栏符号数=' + fenceCount + ' 含cuckoo字=' + hasCuckooWord + ' 围栏语言=' + JSON.stringify(fenceLangs) + ' 提取块数=' + jsBlocks.length);
+    // 有 cuckoo 字但提取 0 块 → 打全文供分析（用分隔标记包裹，便于日志提取）
+    if (hasCuckooWord && jsBlocks.length === 0) {
+      console.log('[Cuckoo Code][诊断] 提取失败全文 >>>' + raw + '<<< 全文结束');
+      try { console.log('[Cuckoo Code][诊断] opLog=' + JSON.stringify(lastRespDbg && lastRespDbg.opLog)); } catch (_) {}
+    }
+  } catch (e) { /* ignore */ }
   if (jsBlocks.length > 0) {
     console.log('[Cuckoo Code][拦截] 检测到 JS 工具代码块（' + jsBlocks.length + ' 个），开始执行');
     formatHintCount = 0;
@@ -268,6 +283,7 @@ function startInterceptObserver(): void {
       try { watchdog.onResponseReceived('finished'); } catch (_) { /* ignore */ }
       // 缓存最近一次完整回复文本，供手动解析复用（不依赖 DOM）
       lastInterceptedText = detail.text || '';
+      lastRespDbg = detail.dbg || null;
       // 通知监听器（每次成功回复都触发），携带服务端权威数据
       const meta = { tokenUsage: detail.tokenUsage || null, msgIds: detail.msgIds || null };
       for (const cb of responseListeners) {
@@ -290,6 +306,21 @@ function startInterceptObserver(): void {
         accumulatedTokens: typeof detail.accumulatedTokens === 'number' ? detail.accumulatedTokens : null,
       });
     } catch (_) { /* ignore */ }
+  });
+  // 上下文耗尽：hook 检测到 banner_info.call_to_action 含 continue_in_new_chat → 请求主进程自动续接
+  window.addEventListener('cuckoo-context-exhausted', (ev: any) => {
+    try {
+      const detail = ev && ev.detail;
+      console.log('[Cuckoo Code][拦截] 上下文已用完，请求自动在新会话续接:', JSON.stringify(detail || {}));
+      const api = (window as any).electronAPI;
+      if (api && typeof api.contextExhaustedContinue === 'function') {
+        api.contextExhaustedContinue().catch((err: any) => {
+          console.error('[Cuckoo Code][拦截] 上下文续接请求失败:', err && err.message);
+        });
+      }
+    } catch (err) {
+      console.error('[Cuckoo Code][拦截] 处理上下文耗尽事件出错:', err);
+    }
   });
   window.addEventListener('cuckoo-ai-error', (ev: any) => {
     try {
