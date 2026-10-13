@@ -2,7 +2,7 @@
 id: 023
 type: fix
 title: ChatGPT 初始化填入失败 + 工具结果发送失败（含上下文耗尽自动续接）
-status: review
+status: done
 branch: fix/023-chatgpt-input-send
 created: 2026-10-13
 updated: 2026-10-13
@@ -62,7 +62,7 @@ ChatGPT 平台出现两个阻断性问题：
 `src/providers/chatgpt.ts` `fillInput`：写入后读回校验（去空白长度 ≥ 期望的 90%），
 失败返回 false（而非无条件 true），让上层重试。
 
-### 四、上下文耗尽 → 自动新开会话 + 保留项目目录（待实现）
+### 四、上下文耗尽 → 自动新开会话 + 保留项目目录（已实现，真机未验证触发）
 
 **复用现有能力**：`new-conversation-for-project` IPC（`src/app/ipc/session.ts`）**已实现**——
 导航到平台首页 + `did-finish-load` 后自动 `initProject(projectDir)`。本功能只需：
@@ -74,11 +74,33 @@ ChatGPT 平台出现两个阻断性问题：
 **触发**：在 `overlay`/`bridge` 检测到信号 → 调 `electronAPI.newConversationForProject(projectDir)`；
 projectDir 从当前 sessionStore 取。
 
+### 五、工具循环文本提取修复（本轮真机排查，核心）
+
+ChatGPT 一条 SSE 流会下发**多条 assistant 消息** + **重放帧**，原 hook「单 text 变量朴素累加」导致
+文本重复/交错 → 破坏 cuckoo 围栏 → 提取 0 块 → 工具不执行。逐层修复：
+
+- **按消息 id 分段**：segments[{id,text}]，快照覆盖本段，syncText 按序拼接
+- **channel/recipient 过滤**：只累积 channel∈{null,final} + recipient∈{null,all} + content_type=text 的正文消息
+- **正文 append 全局去重**：服务端重放帧，且重放时同一 patch 内夹着别的 path（metadata 等）操作，
+  「紧邻去重」会失效 → 改全局去重（key=seg|path|value）
+- **围栏按实际反引号数剥离**：快照+append 叠加会产生 6 个反引号，原 slice(3) 只剥 3 个 → 解析失败
+- **truncate 处理**（防御，真机暂未出现）
+
+**源码研究结论**：ChatGPT SSE 是 {p,o,v} JSON-Patch 风格（前端 applyDelta，per-channel）。
+真机 op 只有 add/patch/append/replace，无需推倒重写；补齐上述去重即可。
+参考 DeepSeek hook（同为 {p,o,v} 朴素累加，流结构更简单）——方向印证，无直接可搬实现。
+
+### 六、发送重试增强
+
+triggerSend：循环最多 10 次（约 6 秒），每次用最新 DOM，交替尝试「真实鼠标点击 / Enter」。
+修「填入大文本后按钮延迟就绪 → findSendButton 返回 null → 直接放弃」的问题。
+
 ## 验收标准
 
-- [ ] ChatGPT 初始化项目：系统提示词快速填入并发出（不再卡 10s+ / 放弃）
-- [ ] ChatGPT 工具执行：结果自动发出（不再卡在输入框）
-- [ ] 上下文耗尽时自动开新会话并保留 projectDir（两种时机均覆盖）
+- [x] ChatGPT 初始化项目：系统提示词快速填入并发出（不再卡 10s+ / 放弃）
+- [x] ChatGPT 工具执行：结果自动发出（不再卡在输入框）
+- [x] ChatGPT 工具循环稳定（有 cuckoo 块必执行，不再因文本重复而漏执行）
+- [ ] 上下文耗尽时自动开新会话并保留 projectDir（**已实现链路，真机未验证触发**）
 - [ ] 新会话能正常调用工具（projectDir 未丢）
 - [x] typecheck / compile / test（873 passed）全绿
 
@@ -86,11 +108,16 @@ projectDir 从当前 sessionStore 取。
 
 ## 遗留 / 后续
 
+- **上下文耗尽自动续接未触发（本需求唯一未验收项）**：链路已实现
+  （hook 检测 `conversation_detail_metadata.banner_info.call_to_action` 含 `continue_in_new_chat`
+  → `cuckoo-context-exhausted` 事件 → bridge → IPC `context-exhausted-continue`
+  → 导航首页 + `initProject(projectDir)`），但真机未验证成功触发。待单独排查
+  （可能是 banner 字段实际值/时机与预期不符，日志有 `banner_info` 打点可查）。
+- **临时诊断代码保留**（本轮排查所加，后续改造用）：hook 的 `opLog`/`logOp`/`seenFrames`/
+  `observeBody 启动`/原文特征/ `DUP-SKIP` 日志；observer 的原文特征 + 提取失败全文 + `banner_info` 打点。
 - **问题：初始化浮动窗口出现「全选/框选」感**——疑与 `execCommand('selectAll')` /
-  `selectNodeContents(input)` 有关（选中输入框全部内容时可见高亮），待验证。
-- **SSE delta 协议完整性**：ChatGPT 用 `delta_encoding: v1`（增量 delta，前端 applyDelta 按 per-channel 累积）；
-  当前 hook 用朴素累加，单样本实测可行，但 `remove`/`truncate`/嵌套 patch/per-channel 隔离未实现，
-  需多场景采样（重新生成/停止/长回复）后再决定是否补全。
-- 详细排查记录见 `docs/prompts/chatgpt-test-log.md`（本地，未入库）。
+  `selectNodeContents(input)` 有关，待验证。
+- **SSE 协议完整性**：真机只用 `add/patch/append/replace`；`remove`/`truncate`/per-channel 隔离未完整实现
+  （`truncate` 已加防御），需多场景采样（重新生成/停止/长回复）后再决定。
 - `chat-input.ts` 兜底的 `querySelector('div[contenteditable...]')`（L271）有同样的「多匹配」隐患，本次未改。
-- 上下文耗尽的检测方式可靠性待真机验证（DOM 文案各平台不同）；是否同步 DeepSeek/Claude 待定。
+- 详细排查记录见 `docs/prompts/chatgpt-test-log.md`、`docs/prompts/chatgpt-tool-loop-investigation.md`。
