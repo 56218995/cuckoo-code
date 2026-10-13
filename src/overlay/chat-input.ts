@@ -99,6 +99,8 @@ async function setInputContent(input: any, msg: string): Promise<boolean> {
 // 当前待发送的消息（可被 cancelPendingSend 取消）
 interface PendingSend { timer: any; input: any; cancelled: boolean; text: string; tag: string; }
 let pendingSend: PendingSend | null = null;
+// 最近一条「已发出」的工具结果文本（用于上下文耗尽续接：新会话需知道工具执行结果）
+let lastToolResultText = '';
 
 // 「用户消息已发出」回调（供 bridge 上报飞书等；overlay 不依赖上层，用回调注入）
 // 系统内部消息的 tag（不视为"用户消息"，不上报飞书）
@@ -189,6 +191,14 @@ function cancelPendingSend(): boolean {
 }
 
 /**
+ * 取最近一条「已发出」的工具结果文本（上下文耗尽续接用）。
+ * @returns 最近工具结果；无则空串
+ */
+function getLastToolResultText(): string {
+  return lastToolResultText || '';
+}
+
+/**
  * 取出并取消当前待发消息，返回其文本（无待发则 null）。
  * 用于「上下文耗尽续接」：捞回刚填入、未及发送的工具结果，带到新会话补发。
  * @returns 待发文本；无则 null
@@ -270,6 +280,8 @@ async function sendCombinedJsResultsToChat(results: any, onSent?: () => void): P
     }
   }
   console.log('[Cuckoo Code] 回传 JS 汇总执行结果, 消息长度=' + msg.length);
+  // 记录最近工具结果（上下文耗尽续接时，新会话需据此继续）
+  lastToolResultText = msg;
   return sendMessageToChat(msg, 'JS汇总', onSent);
 }
 /**
@@ -561,6 +573,7 @@ export {
   sendCombinedJsResultsToChat,
   cancelPendingSend,
   takePendingSendText,
+  getLastToolResultText,
   findInputArea,
   isInputVisible,
   sendInitialPromptToInput,

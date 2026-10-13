@@ -6,7 +6,7 @@
 import { extractJsToolBlocks, BT } from '../parser/js-detector.js';
 import { looksLikeJsonToolCall } from '../parser/json-detector.js';
 import { handleJsToolScript } from '../loop/executor.js';
-import { sendCombinedJsResultsToChat, sendMessageToChat, cancelPendingSend, takePendingSendText } from '../../overlay/chat-input.js';
+import { sendCombinedJsResultsToChat, sendMessageToChat, cancelPendingSend, takePendingSendText, getLastToolResultText } from '../../overlay/chat-input.js';
 import { showToolMask, hideToolMask } from '../../overlay/panel.js';
 import * as watchdog from '../loop/watchdog.js';
 
@@ -312,12 +312,20 @@ function startInterceptObserver(): void {
     try {
       const detail = ev && ev.detail;
       console.log('[Cuckoo Code][拦截] 上下文已用完，请求自动在新会话续接:', JSON.stringify(detail || {}));
-      // 捞回「刚填入、未及发送」的工具结果（耗尽瞬间正卡在发送延迟里），带到新会话补发
+      // 捞回工具结果带到新会话：
+      //  1) 优先「刚填入、未及发送」的（耗尽瞬间卡在发送延迟里）
+      //  2) 否则用「最近一条已发出的工具结果」（耗尽通常发生在 AI 回复流末尾，此时结果已发出，
+      //     但新会话上下文里没有它，需要补发让 AI 知道执行结果）
       let pendingText: string | null = null;
       try {
         cancelPendingSend();
         pendingText = takePendingSendText();
-        if (pendingText) console.log('[Cuckoo Code][拦截] 捞回未发出的工具结果，长度=' + pendingText.length);
+        if (pendingText) {
+          console.log('[Cuckoo Code][拦截] 捞回未发出的工具结果，长度=' + pendingText.length);
+        } else {
+          pendingText = getLastToolResultText() || null;
+          if (pendingText) console.log('[Cuckoo Code][拦截] 用最近已发出的工具结果续接，长度=' + pendingText.length);
+        }
       } catch (_) { /* ignore */ }
       const api = (window as any).electronAPI;
       if (api && typeof api.contextExhaustedContinue === 'function') {

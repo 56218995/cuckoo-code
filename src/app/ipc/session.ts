@@ -220,12 +220,12 @@ function registerSessionIpc(): void {
     const wc = ctx.view.webContents;
     const pendingText = String((payload && payload.pendingText) || '');
     console.log('[Cuckoo Code] 上下文耗尽 → 自动新会话续接，项目目录=' + (projectDir || '(无)') + '，待补发=' + pendingText.length + ' 字符');
-    // 续接说明 + 未发出的工具结果（作为 extraPrompt 追加到系统提示词末尾）
+    // 续接说明 + 最近的工具结果（作为 extraPrompt 追加到系统提示词末尾）
     let extraPrompt = '';
     if (pendingText) {
       extraPrompt =
-        '【续接说明】上一会话因上下文耗尽中断。中断前，一个工具调用刚执行完、结果未及发送，' +
-        '以下是该执行结果，请据此继续（不要重复执行同一工具）：\n\n' + pendingText;
+        '【续接说明】上一会话因上下文耗尽中断。中断前最后一个工具调用的执行结果如下，' +
+        '请据此继续工作（不要重复执行同一工具；如需更多上下文，请用工具读取项目文件）：\n\n' + pendingText;
     }
     const onLoad = () => {
       try { wc.off('did-finish-load', onLoad); } catch (_) { /* ignore */ }
