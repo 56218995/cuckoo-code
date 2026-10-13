@@ -104,38 +104,56 @@ const chatgpt = {
   // 点击后校验输入框是否被清空（发送成功的标志），失败再回退 Enter / DOM click。
   async triggerSend(input: any) {
     const api = (window as any).electronAPI;
-    // 重新查找发送按钮（发送延迟期间 DOM 可能已变化）
-    const btn = this.findSendButton ? this.findSendButton() : null;
+    // 重新查找**最新的**输入框与发送按钮（3 秒发送延迟期间，React 可能替换 DOM，
+    // 旧引用会脱离文档 → 点击后校验读成空 → 误判成功）。
+    const findInput = () => {
+      const sels = ['div[contenteditable="true"].ProseMirror', 'div[role="textbox"]', 'div.ProseMirror', 'div[contenteditable="true"]', 'textarea'];
+      for (const s of sels) { const els = document.querySelectorAll(s); for (let i = 0; i < els.length; i++) { const e: any = els[i]; if (e.offsetWidth > 0 && e.offsetHeight > 0) return e; } }
+      return null;
+    };
+    const lenOf = (el: any) => String((el && (el.innerText || el.value || el.textContent)) || '').replace(/\s+/g, '').length;
 
-    // 1) 优先：主进程真实鼠标点击发送按钮（不受页面/窗口焦点影响）
-    if (btn && api && typeof api.simulateMouse === 'function') {
-      try {
-        if (input && typeof input.focus === 'function') { try { input.focus(); } catch (_) {} }
-        const rect = btn.getBoundingClientRect();
-        const x = Math.round(rect.left + rect.width / 2);
-        const y = Math.round(rect.top + rect.height / 2);
-        await api.simulateMouse('click', x, y);
-        // 校验：发送成功 → ChatGPT 会清空输入框
-        await new Promise((res) => setTimeout(res, 400));
-        const remaining = String((input && (input.innerText || input.textContent)) || '').replace(/\s+/g, '').length;
-        if (remaining <= 2) return true;
-        console.warn('[Cuckoo Code][chatgpt.triggerSend] 鼠标点击后输入框未清空(remaining=' + remaining + ')，转 Enter 兜底');
-      } catch (err: any) {
-        console.warn('[Cuckoo Code][chatgpt.triggerSend] 鼠标点击失败:', err && err.message);
+    // 发送：循环 10 次（每次 ~600ms，共约 6 秒），每次用最新 DOM，交替尝试 点击 / Enter。
+    // ⚠️ 实测：填入后 ProseMirror 处理需要时间，按钮可能短暂不存在/禁用；且 Enter 依赖页面焦点。
+    //    故必须「等按钮就绪 + 多方式兜底 + 长重试」，不能一次失败就放弃。
+    const canSim = api && typeof api.simulateMouse === 'function';
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const curInput = findInput() || input;
+      const btn = this.findSendButton ? this.findSendButton() : null;
+      // A) 有按钮 → 真实鼠标点击
+      if (btn && canSim) {
+        try {
+          if (curInput && typeof curInput.focus === 'function') { try { curInput.focus(); } catch (_) {} }
+          const rect = btn.getBoundingClientRect();
+          const x = Math.round(rect.left + rect.width / 2);
+          const y = Math.round(rect.top + rect.height / 2);
+          await api.simulateMouse('click', x, y);
+          await new Promise((res) => setTimeout(res, 400));
+          const remaining = lenOf(findInput());
+          console.log('[Cuckoo Code][chatgpt.triggerSend] 点击#' + (attempt + 1) + ' @(' + x + ',' + y + ') 后输入框剩余=' + remaining);
+          if (remaining <= 2) return true;
+        } catch (err: any) {
+          console.warn('[Cuckoo Code][chatgpt.triggerSend] 鼠标点击失败:', err && err.message);
+        }
+      } else {
+        // B) 没按钮 → 尝试 Enter（先聚焦输入框）
+        try {
+          if (curInput && typeof curInput.focus === 'function') { try { curInput.focus(); } catch (_) {} }
+          if (api && typeof api.sendEnterToChat === 'function') {
+            await api.sendEnterToChat();
+            await new Promise((res) => setTimeout(res, 400));
+            const remaining = lenOf(findInput());
+            console.log('[Cuckoo Code][chatgpt.triggerSend] 第' + (attempt + 1) + '次无按钮→Enter 后剩余=' + remaining);
+            if (remaining <= 2) return true;
+          }
+        } catch (_) { /* ignore */ }
       }
+      await new Promise((res) => setTimeout(res, 200));
     }
 
-    // 2) 兜底：主进程真实 Enter（需页面有焦点）
-    try {
-      if (input && typeof input.focus === 'function') { try { input.focus(); } catch (_) {} }
-      if (api && typeof api.sendEnterToChat === 'function') {
-        const ok = await api.sendEnterToChat();
-        if (ok) return true;
-      }
-    } catch (_) { /* 继续回退 */ }
-
-    // 3) 最后兜底：DOM click
-    if (btn) { (btn as any).click(); return true; }
+    // 最后兜底：DOM click
+    const btn2 = this.findSendButton ? this.findSendButton() : null;
+    if (btn2) { (btn2 as any).click(); return true; }
     return false;
   },
 

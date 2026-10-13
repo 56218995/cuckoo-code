@@ -162,6 +162,37 @@ function install(): void {
   // ---------- 回复文本提取 ----------
   function createExtractor(reqMeta) {
     var text = '';
+    // 按 assistant 消息 id 分段累积。
+    // ⚠️ ChatGPT 同一条流会下发**多条** assistant 消息（不同 id）；若都追加进同一个 text，
+    //    后一条的 append 会接在前一条后面 → 文本交错/重复（实测：'log(results'+'glob(*)' 拼在一起、整句重复），
+    //    破坏 cuckoo 围栏结构 → 提取 0 块。故每条消息一个「段」，快照覆盖本段，最后按序拼接。
+    var segments = [];
+    var currentSeg = null;
+    // 正文 append 的全局去重集合（key = seg|path|value）。
+    // ⚠️ 实测服务端会重放已发操作，且重放时**中间夹着同 patch 里别的 path 的操作**
+    //    → "紧邻去重"失效 → 正文重复。改为全局去重（append 非幂等，同一位置追加完全相同文本在正常生成中不存在）。
+    var appendedSet = {};
+    // [临时诊断] 记录所有改文本的帧，供失败时分析交错来源
+    var opLog = [];
+    function logOp(rec) { if (opLog.length < 300) opLog.push(rec); }
+    function opLogStr() { return opLog.join(' || '); }
+    function segmentFor(id) {
+      var key = (typeof id === 'string' && id) ? id : (currentSeg ? currentSeg.id : '(default)');
+      for (var si = 0; si < segments.length; si++) {
+        if (segments[si].id === key) { currentSeg = segments[si]; return currentSeg; }
+      }
+      currentSeg = { id: key, text: '' };
+      segments.push(currentSeg);
+      return currentSeg;
+    }
+    function syncText() {
+      var out = '';
+      for (var sj = 0; sj < segments.length; sj++) {
+        // 只拼接「正文消息」段（非正文段不参与，避免交错）
+        if (segments[sj].isFinal) out += segments[sj].text;
+      }
+      text = out;
+    }
     // 思考内容通道：ChatGPT 目前不向 /conversation 流下发推理原文，
     // 仅当 part 标记 reasoning / thoughts 时才有值（例如部分推理模型）。
     var thinkText = '';
@@ -234,20 +265,6 @@ function install(): void {
       if (low.indexOf('cancel') !== -1 || low.indexOf('interrupt') !== -1) serverStopped = true;
     }
 
-    /**
-     * 覆盖正文，但防止「丢块」：
-     * 实测同一轮里 GPT 会先给出含 cuckoo 块的消息，随后被纯文字消息覆盖。
-     * 若直接覆盖，已见到的工具块会被顶掉 → 本轮不执行任何工具。
-     * 规则：新内容不含 cuckoo 块、而当前正文含块、且新内容不更长时 → 保留现有正文。
-     */
-    function overwriteText(next) {
-      var FENCE_CUCKOO = '```' + 'cuckoo';
-      var nextS = String(next || '');
-      var oldHasBlock = text.indexOf(FENCE_CUCKOO) !== -1;
-      var newHasBlock = nextS.indexOf(FENCE_CUCKOO) !== -1;
-      if (oldHasBlock && !newHasBlock && nextS.length <= text.length) return;
-      text = nextS;
-    }
 
     function partKind(p) {
       if (!p || typeof p !== 'object') return 'text';
@@ -285,12 +302,42 @@ function install(): void {
       //    且带 status='finished_successfully'，若采信会在正文到达前就 finished=true → 空文本 → error。
       if (snap === null) return;
       var newText = String(snap.text || '');
-      // 防"丢块"覆盖（规则见 overwriteText 注释）
-      overwriteText(newText);
+      // 对齐 ChatGPT 前端：只认「正文消息」——channel 为 null/final、recipient 为 null/all、
+      // content_type 为 text。commentary（过程说明）等消息**不累积**，否则与正文交错拼接、
+      // 破坏 cuckoo 围栏结构（实测：'找到了，项目根目录不是单'+'找到了，项目根目录不是单一的' 交错）。
+      var isFinalAnswer = (m.channel == null || m.channel === 'final')
+        && (m.recipient == null || m.recipient === 'all')
+        && m.content && m.content.content_type === 'text';
+      var seg = segmentFor(typeof m.id === 'string' ? m.id : null);
+      seg.isFinal = isFinalAnswer;
+      logOp('SNAP id=' + String(m.id || '?').slice(-8) + ' final=' + isFinalAnswer + ' ch=' + JSON.stringify(m.channel) + ' rc=' + JSON.stringify(m.recipient) + ' len=' + newText.length + ' head=' + JSON.stringify(newText.slice(0, 30)));
+      if (isFinalAnswer) { seg.text = newText; }
+      syncText();
       if (snap.think) thinkText = snap.think;
       applyStatus(m.status);
       if (m.metadata) applyStopReason(m.metadata.stop_reason);
       if (m.end_turn === true) { finished = true; endTurn = true; }
+    }
+
+    // 上下文耗尽检测：ChatGPT 在 conversation_detail_metadata 帧里下发 banner_info，
+    // 若其 call_to_action 含 'continue_in_new_chat'（context-limit hard-block banner），
+    // 说明本会话上下文已满、发送被硬阻止 → 通知上层「自动在新会话续接」。
+    var contextExhaustedFired = false;
+    function checkContextExhausted(node) {
+      try {
+        if (!node || node.type !== 'conversation_detail_metadata') return;
+        var bi = node.banner_info;
+        if (!bi || typeof bi !== 'object') return;
+        var ctas = Array.isArray(bi.call_to_action) ? bi.call_to_action : [];
+        var hit = ctas.indexOf('continue_in_new_chat') !== -1;
+        // 调试：把 banner 关键信息打出来（真机确认字段）
+        console.log('[Cuckoo Code][hook] conversation_detail_metadata banner_info: name=' + bi.name + ' ctas=' + JSON.stringify(ctas) + ' hard=' + (bi.metadata && bi.metadata.is_hard_block_banner));
+        if (hit && !contextExhaustedFired) {
+          contextExhaustedFired = true;
+          console.log('[Cuckoo Code][hook] 检测到上下文耗尽（continue_in_new_chat），通知上层续接');
+          window.dispatchEvent(new CustomEvent('cuckoo-context-exhausted', { detail: { name: bi.name || '', ctas: ctas } }));
+        }
+      } catch (e) { /* ignore */ }
     }
 
     function applyOp(node) {
@@ -299,6 +346,9 @@ function install(): void {
       // 0) 错误信封（老协议 {"error": {...}}）
       if (node.error !== null && node.error !== undefined &&
           node.v === undefined && node.p === undefined) { failed = true; }
+
+      // 0b) 上下文耗尽信号（banner_info.call_to_action 含 continue_in_new_chat）
+      checkContextExhausted(node);
 
       // 1) 批量操作：v 为操作数组。
       // ⚠️ 实测登录态 SSE 的增量帧多为**裸 {v:[...]}**（无 o 字段），
@@ -327,23 +377,38 @@ function install(): void {
         if (node.p === '/message/status') { applyStatus(node.v); return; }
         if (node.p === '/message/end_turn' && node.v === true) { finished = true; endTurn = true; return; }
         if (/\/message\/content\/parts\/\d+$/.test(node.p)) {
+          var pseg = currentSeg || segmentFor(null);
+          if (pseg.isFinal === false) { return; } // 非正文消息段：忽略
           if (typeof node.v === 'string') {
+            // 全局去重：同一 (seg,path,value) 的 append/add 只应用一次
             if (node.o === 'append' || node.o === 'add') {
-              text += node.v;
+              var dupKey = String(pseg.id) + '|' + node.p + '|' + node.v;
+              if (appendedSet[dupKey]) {
+                logOp('DUP-SKIP p=' + node.p + ' v=' + JSON.stringify(node.v.slice(0, 20)));
+                return;
+              }
+              appendedSet[dupKey] = 1;
+            }
+            logOp('PATH p=' + node.p + ' o=' + node.o + ' seg=' + String(pseg.id).slice(-8) + ' v=' + JSON.stringify(node.v.slice(0, 30)));
+            if (node.o === 'append' || node.o === 'add') {
+              pseg.text += node.v;
+            } else if (node.o === 'truncate') {
+              pseg.text = pseg.text.substring(0, Number(node.v));
+              console.log('[Cuckoo Code][hook] 遇到 truncate，截断至 ' + node.v);
             } else {
-              // ⚠️ 防丢块：覆盖式写入若不含 cuckoo 块、而当前正文含块，则不覆盖（见 handleMessage 同款保护）
-              overwriteText(node.v);
+              pseg.text = node.v;
             }
           } else if (node.v && typeof node.v === 'object' && typeof node.v.text === 'string') {
             if (partKind(node.v) === 'think') thinkText += node.v.text;
-            else text += node.v.text;
+            else pseg.text += node.v.text;
           }
+          syncText();
         }
         return;
       }
 
-      // 4) 裸 v 字符串（无有效 p）：追加正文
-      if (typeof node.v === 'string') { text += node.v; return; }
+      // 4) 裸 v 字符串（无有效 p）：追加到当前消息段（仅正文段）
+      if (typeof node.v === 'string') { var bseg = currentSeg || segmentFor(null); if (bseg.isFinal !== false) { bseg.text += node.v; syncText(); } return; }
 
       // 5) 类型化结束事件
       if (node.type === 'message_stream_complete' || node.type === 'message_stream_completed') {
@@ -376,7 +441,8 @@ function install(): void {
           textLen: text.length,
           thinkLen: thinkText.length,
           textTail: text.slice(-200),
-          statusFrames: statusFrames.slice()
+          statusFrames: statusFrames.slice(),
+          opLog: opLog.slice()
         };
       }
     };
@@ -400,8 +466,11 @@ function install(): void {
     return 300000;
   }
 
+  var _obsSeq = 0;
   function observeBody(body, sessionId, reqMeta) {
     if (!body) return;
+    var obsId = ++_obsSeq;
+    console.log('[Cuckoo Code][hook] observeBody 启动 #' + obsId);
     var reader = body.getReader();
     var decoder = new TextDecoder();
     var frameDecoder = createFrameDecoder();
@@ -428,10 +497,22 @@ function install(): void {
       }, 5000);
     }
 
+    var frameSeq = 0;
+    var seenFrames = {};
     function flushFrame(frame) {
       var r = parseFrame(frame);
       if (r.done) { extractor.markDone(); return; }
       if (r.data == null) return;
+      frameSeq++;
+      // 全局去重：同一 observeBody 内，**见过**的帧 data 直接跳过（不要求相邻）。
+      // ⚠️ 实测 ChatGPT 可续传流会**重放**已发过的帧（重复帧之间夹着 message_marker 等），
+      //    若不去重，同一 append 执行两次 → 文本翻倍 → 破坏 cuckoo 围栏 → 提取 0 块。
+      //    frame data 本身含唯一 id（message_id 等），完全相同即重复。
+      if (seenFrames[r.data]) {
+        seenFrames[r.data]++;
+        return;
+      }
+      seenFrames[r.data] = 1;
       var parsed;
       try { parsed = JSON.parse(r.data); } catch (e) { return; }
       extractor.consume(parsed);
@@ -595,10 +676,22 @@ function install(): void {
     var extractor = createExtractor(reqMeta);
     var dispatched = false;
 
+    var frameSeq = 0;
+    var seenFrames = {};
     function flushFrame(frame) {
       var r = parseFrame(frame);
       if (r.done) { extractor.markDone(); return; }
       if (r.data == null) return;
+      frameSeq++;
+      // 全局去重：同一 observeBody 内，**见过**的帧 data 直接跳过（不要求相邻）。
+      // ⚠️ 实测 ChatGPT 可续传流会**重放**已发过的帧（重复帧之间夹着 message_marker 等），
+      //    若不去重，同一 append 执行两次 → 文本翻倍 → 破坏 cuckoo 围栏 → 提取 0 块。
+      //    frame data 本身含唯一 id（message_id 等），完全相同即重复。
+      if (seenFrames[r.data]) {
+        seenFrames[r.data]++;
+        return;
+      }
+      seenFrames[r.data] = 1;
       var parsed;
       try { parsed = JSON.parse(r.data); } catch (e) { return; }
       extractor.consume(parsed);
