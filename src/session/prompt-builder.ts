@@ -16,6 +16,7 @@ import { getPluginScanRoots } from '../plugins/roots.js';
 import type { PluginScanRoots } from '../plugins/roots.js';
 // DSH 插件注册的提示词段（C4）
 import { getPromptSections as getDshPromptSections } from '../plugins/dsh-compat/prompt-sections.js';
+import { buildMemorySection } from '../infra/memories.js';
 
 // 提示词模板目录（D20：锚定应用根，与 dist 结构解耦）
 const PROMPT_DIR = resolveSrc('prompt');
@@ -188,6 +189,11 @@ function buildPrompt(opts: { providerId: string; selectedDir: string; isCompacti
   const agentsSection = buildAgentsSection(scanAgents(selectedDir, pluginRoots.agentDirs));
   // 无 paths 的规则：始终注入（「## 项目规则」章节）
   const rulesSection = buildUnscopedRulesSection(getUnscopedRules(scanRules(selectedDir, pluginRoots.ruleDirs)));
+  // 用户记忆（跨项目）：让模型了解用户习惯
+  let memorySection = '';
+  try { memorySection = buildMemorySection(); } catch (err: any) {
+    console.warn('[Cuckoo Code] 读取用户记忆失败:', err && err.message ? err.message : String(err));
+  }
 
   const placeholders: Record<string, string> = {
     '{{TOOL_API_TYPES}}': toolApiTypes,
@@ -200,6 +206,7 @@ function buildPrompt(opts: { providerId: string; selectedDir: string; isCompacti
     '{{SKILLS_SECTION}}': skillsSection,
     '{{AGENTS_SECTION}}': agentsSection,
     '{{PROJECT_RULES_SECTION}}': rulesSection,
+    '{{MEMORY_SECTION}}': memorySection,
   };
   let combined = tpl.content;
   for (const [key, value] of Object.entries(placeholders)) {
