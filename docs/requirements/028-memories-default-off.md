@@ -35,6 +35,7 @@ PR #40 引入用户记忆系统（remember/forgetMemory 工具 + 正文 [记忆]
 ### 5 个环节（关闭时全部生效）
 
 1. **工具列表/说明**：给 `Tool` 加 `isEnabled()` 钩子（默认 true），`ToolRegistry.getDescriptions()`/`getPromptSections()` 过滤；`remember`/`forgetMemory` override 返回 `isMemoriesEnabled()`
+   - **工具类型定义拆分**：`ToolApiMeta` 加 `feature` 字段；`build-tool-api.mjs` 按 feature 生成独立契约文件（`api.d.ts` 基础 + `api.memories.d.ts` 记忆）；`prompt-builder` 只注入基础 + **已启用** feature 的契约（`getEnabledToolFeatures()`）
 2. **记忆章节注入**：`buildMemorySection()` 关闭时返回空串（不注入 `{{MEMORY_SECTION}}`）
 3. **正文标记捕获**：`app/ipc/memory.ts` 的 `create-memory-marker` handler 关闭时拒绝
 4. **工具调用**：`remember`/`forgetMemory` 的 `execute()` 关闭时返回「记忆功能已关闭」
@@ -43,10 +44,17 @@ PR #40 引入用户记忆系统（remember/forgetMemory 工具 + 正文 [记忆]
 ### IPC
 - `get-memories-enabled` / `set-memories-enabled`
 
+### 工具契约拆分（`api.d.ts`）
+- `ToolApiMeta.feature?: string` —— 有值则归入 `api.<feature>.d.ts`
+- `build-tool-api.mjs` 按 feature 分组生成
+- `infra/paths.ts`：`resolveToolSpecFeature(feature)`
+- `infra/config.ts`：`getEnabledToolFeatures()`（当前返回 `['memories']` 或 `[]`）
+- `package.json` extraResources 增加 `api.memories.d.ts`
+
 ## 验收标准
 
 - [ ] 默认（无 config.json）时记忆功能关闭
-- [ ] 关闭时：工具列表无 remember、提示词无记忆章节、标记不捕获、调用被拒
+- [ ] 关闭时：工具列表无 remember、**类型定义无 remember**、提示词无记忆章节、标记不捕获、调用被拒
 - [ ] 开启后功能恢复，已有记忆还在
 - [x] typecheck / compile / test（913 passed）全绿
 
@@ -54,5 +62,5 @@ PR #40 引入用户记忆系统（remember/forgetMemory 工具 + 正文 [记忆]
 
 ## 遗留 / 后续
 
-- **`{{TOOL_API_TYPES}}` 无法过滤**：工具类型定义（api.d.ts）是构建期静态文件，关闭时 AI 仍能看到 `remember`/`forgetMemory` 签名（但它们不在工具列表里）。影响小：AI 无理由调用不在列表的函数，且调用会被 `execute()` 拒绝。
 - 开关位置：当前在「记忆页」顶部（从左侧菜单「记忆」进入）。若要更显眼（菜单项旁直接切换）需另做。
+- **契约拆分机制可复用**：未来其他"可开关功能"（如某工具组）同样可标 `feature`，自动获得独立契约文件 + 按开关注入。
