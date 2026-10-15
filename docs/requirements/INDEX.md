@@ -31,5 +31,6 @@
 | 025 | fix | [危险命令检测增强（前缀/通配符/长选项）](./025-dangerous-cmd-bypass.md) | review | fix/022-dangerous-cmd-bypass | 2026-10-14 |
 | 026 | fix | [edit 编辑混合换行符文件时保留未编辑区域](./026-edit-preserve-eol.md) | done | fix/023-edit-preserve-eol | 2026-10-15 |
 | 027 | feature | [用户记忆系统](./027-memories.md) | review | feat/024-memories | 2026-10-15 |
+| 028 | feature | [用户记忆功能默认关闭 + 开关](./028-memories-default-off.md) | review | feat/028-memories-default-off | 2026-10-15 |
 
-共 26 个需求。
+共 27 个需求。

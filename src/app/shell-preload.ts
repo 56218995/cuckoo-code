@@ -193,6 +193,8 @@ const shellAPI = {
   triggerCompact: () => ipcRenderer.invoke('trigger-compact'),
   // ========== 记忆 ==========
   listMemories: () => ipcRenderer.invoke('list-memories'),
+  getMemoriesEnabled: () => ipcRenderer.invoke('get-memories-enabled'),
+  setMemoriesEnabled: (enabled: boolean) => ipcRenderer.invoke('set-memories-enabled', { enabled }),
   saveMemories: (memories: any) => ipcRenderer.invoke('save-memories', { memories }),
   addMemory: (text: string) => ipcRenderer.invoke('add-memory', { text }),
   deleteMemory: (id: string) => ipcRenderer.invoke('delete-memory', { id }),
