@@ -44,8 +44,9 @@ function extractBody(fn) {
   return lines.map((l) => '  ' + l.slice(minIndent)).join(NL);
 }
 
-function render(metas) {
+function render(metas, minimal) {
   const L = [];
+  if (!minimal) {
   L.push('/**');
   L.push(' * Cuckoo Code 工具 API（TypeScript 声明）');
   L.push(' *');
@@ -74,6 +75,17 @@ function render(metas) {
   L.push(' * 注意：log() 只在 cuckoo 代码块的 JS 层可用。不要在 bash()/pwsh() 的命令字符串内部调用它——那些命令是独立的 shell 脚本，无法访问 JS 函数。');
   L.push(' */');
   L.push('declare function log(...args: unknown[]): void;');
+  } else {
+    L.push('/**');
+    L.push(' * Cuckoo Code 工具 API —— 功能分组声明（按需注入）');
+    L.push(' *');
+    L.push(' * 本文件仅在对应功能启用时，追加到基础契约（api.d.ts）之后。');
+    L.push(' * 基础类型（projectDir / log 等）见 api.d.ts，本文件不重复声明。');
+    L.push(' *');
+    L.push(' * ⚠️ 本文件由 scripts/build-tool-api.mjs 自动生成，请勿手动编辑。');
+    L.push(' */');
+    L.push('');
+  }
 
   let lastCat = null;
   for (const m of metas) {
@@ -122,13 +134,13 @@ for (const m of metas) {
   if (!byFeature.has(m.feature)) byFeature.set(m.feature, []);
   byFeature.get(m.feature).push(m);
 }
-fs.writeFileSync(OUT, render(baseMetas), 'utf8');
+fs.writeFileSync(OUT, render(baseMetas, false), 'utf8');
 console.log('[build-tool-api] 生成 ' + path.relative(ROOT, OUT) + '（' + baseMetas.length + ' 个基础工具）');
 // 各 feature 独立文件（与 OUT 同目录，命名 api.<feature>.d.ts）
 const outDir = path.dirname(OUT);
 for (const [feat, fmetas] of byFeature) {
   const fout = path.join(outDir, 'api.' + feat + '.d.ts');
-  fs.writeFileSync(fout, render(fmetas), 'utf8');
+  fs.writeFileSync(fout, render(fmetas, true), 'utf8');
   console.log('[build-tool-api] 生成 ' + path.relative(ROOT, fout) + '（feature=' + feat + '，' + fmetas.length + ' 个工具）');
 }
 

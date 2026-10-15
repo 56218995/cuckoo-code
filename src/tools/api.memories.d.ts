@@ -1,31 +1,12 @@
 /**
- * Cuckoo Code 工具 API（TypeScript 声明）
+ * Cuckoo Code 工具 API —— 功能分组声明（按需注入）
  *
- * 本文件描述 cuckoo 代码块中可以调用的全部全局函数与数据类型。
- * 运行时由 JsRunner 在受限沙箱中注入这些函数；本声明用于帮助
- * AI 理解调用方式，与运行时行为保持一致。
- *
- * 使用规则速览：
- * - 所有工具函数都是异步的，调用时必须写 await
- * - 相对路径基于全局变量 projectDir（当前项目根目录）解析
- * - 多行文本使用反引号（`）模板字符串，不需要任何转义
- * - 工具出错时抛出异常（Error.message 为错误描述），可用 try/catch 处理；
- *   唯一例外是 bash()/pwsh()：非零退出不抛异常，通过返回文本中的 [exit code] 标记报告
- * - 用 log() 输出中间过程；脚本最后可用 return 返回结果值
+ * 本文件仅在对应功能启用时，追加到基础契约（api.d.ts）之后。
+ * 基础类型（projectDir / log 等）见 api.d.ts，本文件不重复声明。
  *
  * ⚠️ 本文件由 scripts/build-tool-api.mjs 自动生成，请勿手动编辑。
- *    真相源：各工具的 apiMetas 元数据（src/tools/impl/*.ts）。
  */
 
-/** 当前项目根目录（初始化项目后由系统注入）。未初始化时为 null。 */
-declare const projectDir: string | null;
-
-/**
- * 输出中间结果到执行日志（不中断脚本）。
- * 日志内容随执行结果一起回传给 AI。
- * 注意：log() 只在 cuckoo 代码块的 JS 层可用。不要在 bash()/pwsh() 的命令字符串内部调用它——那些命令是独立的 shell 脚本，无法访问 JS 函数。
- */
-declare function log(...args: unknown[]): void;
 
 // ================= 记忆 =================
 
