@@ -128,6 +128,10 @@
         "to": "tools/cuckoo-tools.d.ts"
       },
       {
+        "from": "src/tools/api.memories.d.ts",
+        "to": "tools/cuckoo-tools.memories.d.ts"
+      },
+      {
         "from": "resources/runtime",
         "to": "runtime"
       }

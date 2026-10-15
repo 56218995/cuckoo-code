@@ -67,4 +67,14 @@ function setMemoriesEnabled(enabled: boolean): boolean {
   return writeConfig({ memoriesEnabled: enabled === true });
 }
 
-export { readConfig, writeConfig, isMemoriesEnabled, setMemoriesEnabled, getConfigFile };
+/**
+ * 已启用的工具功能分组（用于注入对应的 API 契约文件 api.<feature>.d.ts）。
+ * 目前仅 'memories'。
+ */
+function getEnabledToolFeatures(): string[] {
+  const feats: string[] = [];
+  if (isMemoriesEnabled()) feats.push('memories');
+  return feats;
+}
+
+export { readConfig, writeConfig, isMemoriesEnabled, setMemoriesEnabled, getEnabledToolFeatures, getConfigFile };

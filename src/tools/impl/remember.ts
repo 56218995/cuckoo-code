@@ -7,6 +7,7 @@ import { isMemoriesEnabled } from '../../infra/config.js';
 export const apiMetas: ToolApiMeta[] = [
   {
     order: 17,
+    feature: 'memories',
     category: '记忆',
     name: 'remember',
     doc: '把用户明确表达的偏好、习惯或长期有用的事实记入长期记忆（跨会话、跨项目保留）。后续对话会自动注入这些记忆。',
@@ -20,6 +21,7 @@ export const apiMetas: ToolApiMeta[] = [
   },
   {
     order: 18,
+    feature: 'memories',
     category: '记忆',
     name: 'forgetMemory',
     doc: '按 id 删除一条长期记忆（当用户要求"忘掉"某事，或记忆已过时）。可用 listMemories 查看现有记忆及其 id。',

@@ -88,6 +88,12 @@ export interface ToolApiMeta {
   throws?: string;
   /** JsRunner 沙箱注入的 bootstrap 代码（globalThis.x = async function ...） */
   bootstrap?: string;
+  /**
+   * 功能开关分组（可选）。有值 → 归入该 feature 的独立契约文件（api.<feature>.d.ts），
+   * 仅在功能启用时注入提示词（如 'memories'）。
+   * 无值 → 归入基础契约 api.d.ts，始终注入。
+   */
+  feature?: string;
 }
 
 export { Tool };

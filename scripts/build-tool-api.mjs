@@ -114,8 +114,23 @@ if (metas.length === 0) {
   console.error('[build-tool-api] 未收集到任何 apiMetas');
   process.exit(1);
 }
-fs.writeFileSync(OUT, render(metas), 'utf8');
-console.log('[build-tool-api] 生成 ' + path.relative(ROOT, OUT) + '（' + metas.length + ' 个工具）');
+// 按 feature 分组：无 feature → 基础 api.d.ts（始终注入）；有 feature → api.<feature>.d.ts（仅该功能启用时注入）
+const baseMetas = metas.filter((m) => !m.feature);
+const byFeature = new Map();
+for (const m of metas) {
+  if (!m.feature) continue;
+  if (!byFeature.has(m.feature)) byFeature.set(m.feature, []);
+  byFeature.get(m.feature).push(m);
+}
+fs.writeFileSync(OUT, render(baseMetas), 'utf8');
+console.log('[build-tool-api] 生成 ' + path.relative(ROOT, OUT) + '（' + baseMetas.length + ' 个基础工具）');
+// 各 feature 独立文件（与 OUT 同目录，命名 api.<feature>.d.ts）
+const outDir = path.dirname(OUT);
+for (const [feat, fmetas] of byFeature) {
+  const fout = path.join(outDir, 'api.' + feat + '.d.ts');
+  fs.writeFileSync(fout, render(fmetas), 'utf8');
+  console.log('[build-tool-api] 生成 ' + path.relative(ROOT, fout) + '（feature=' + feat + '，' + fmetas.length + ' 个工具）');
+}
 
 // ========== JsRunner 沙箱注入脚本（工具部分）==========
 const BOOTSTRAP_OUT = path.join(ROOT, 'src', 'tools', 'runtime', 'bootstrap.generated.ts');
