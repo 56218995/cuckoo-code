@@ -6,11 +6,12 @@ import { loadCustomProviders } from './custom/loader.js';
 import { deepseek } from './deepseek.js';
 import { claude } from './claude.js';
 import { chatgpt } from './chatgpt.js';
+import { ollama } from './ollama.js';
 import { validateProvider } from './validate.js';
 
 function loadBuiltinProviders(): any[] {
   const list: any[] = [];
-  for (const p of [deepseek, claude, chatgpt]) {
+  for (const p of [deepseek, claude, chatgpt, ollama]) {
     const err = validateProvider(p);
     if (err) {
       console.warn('[Provider] 内置 provider 校验失败，跳过:', (p && p.id) || '?', err);

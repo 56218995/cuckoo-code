@@ -210,22 +210,34 @@ function attachUi(ctx: any, pluginName: string): void {
   };
 
   // Cuckoo 界面挂载（侧边栏/状态栏/工具栏）
+  // 返回值 Promise 附带 .dispose()；插件卸载时（ctx.effect cleanup）自动卸载挂载
+  const shellDisposers: Array<() => void> = [];
+  try {
+    if (ctx && typeof ctx.effect === 'function') {
+      ctx.effect(() => () => {
+        for (const d of shellDisposers) { try { d(); } catch (_) {} }
+        shellDisposers.length = 0;
+      });
+    }
+  } catch (_) {}
+  function mountShell(target: string, spec: any): any {
+    const api = (window as any).electronAPI;
+    if (!api || typeof api.shellMount !== 'function') {
+      return Promise.resolve({ success: false, error: 'shellMount 不可用' });
+    }
+    const p: any = api.shellMount(pluginName, target, spec && spec.id, spec);
+    const dispose = () => {
+      try { if (api.shellUnmount) return api.shellUnmount(pluginName, target, spec && spec.id); } catch (_) {}
+      return Promise.resolve({ success: false });
+    };
+    try { p.dispose = dispose; } catch (_) {}
+    shellDisposers.push(dispose);
+    return p;
+  }
   (ui as any).shell = {
-    addSidebarPanel: (spec: any) => {
-      const api = (window as any).electronAPI;
-      if (api && typeof api.shellMount === 'function') return api.shellMount(pluginName, 'sidebar', spec && spec.id, spec);
-      return Promise.resolve({ success: false, error: 'shellMount 不可用' });
-    },
-    addStatusItem: (spec: any) => {
-      const api = (window as any).electronAPI;
-      if (api && typeof api.shellMount === 'function') return api.shellMount(pluginName, 'statusbar', spec && spec.id, spec);
-      return Promise.resolve({ success: false, error: 'shellMount 不可用' });
-    },
-    addToolbarButton: (spec: any) => {
-      const api = (window as any).electronAPI;
-      if (api && typeof api.shellMount === 'function') return api.shellMount(pluginName, 'toolbar', spec && spec.id, spec);
-      return Promise.resolve({ success: false, error: 'shellMount 不可用' });
-    },
+    addSidebarPanel: (spec: any) => mountShell('sidebar', spec),
+    addStatusItem: (spec: any) => mountShell('statusbar', spec),
+    addToolbarButton: (spec: any) => mountShell('toolbar', spec),
     /**
      * 往 Cuckoo 壳页面注入任意 CSS（壁纸/字体/布局）。
      * 对标 DSH 的 styles.insert(css)。只作用于 Cuckoo 自己的界面，不碰 AI 页面。

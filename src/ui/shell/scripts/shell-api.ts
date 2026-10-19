@@ -30,6 +30,11 @@ export interface ShellAPI {
   listInstalledPlugins?: () => Promise<any>;
   pluginSetEnabled?: (id: string, enabled: boolean) => Promise<any>;
   pluginOpenDir?: () => Promise<any>;
+  pluginImportDir?: () => Promise<any>;
+  pluginImportZip?: () => Promise<any>;
+  onPluginShellMount?: (cb: (data: any) => void) => void;
+  onPluginShellUnmount?: (cb: (data: any) => void) => void;
+  listPluginShellMounts?: () => Promise<any>;
   // ===== Cuckoo 插件（DSH 兼容）=====
   cuckooPluginList?: () => Promise<any>;
   cuckooPluginInstall?: (pkgName: string) => Promise<any>;
@@ -62,6 +67,10 @@ export interface ShellAPI {
   themeList?: () => Promise<any>;
   themeSubscribe?: () => Promise<any>;
   onThemeChanged?: (cb: (snapshot: any) => void) => void;
+  themeUserGet?: () => Promise<any>;
+  themeUserSet?: (tokens: any) => Promise<any>;
+  themeUserReset?: () => Promise<any>;
+  themeOverride?: (source: string, tokens: any) => Promise<any>;
   // 会话（侧边栏「工作区」页）
   listAllSessions?: () => Promise<any>;
   navigateSession?: (sessionId: string) => Promise<any>;

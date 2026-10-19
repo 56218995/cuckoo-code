@@ -4,6 +4,7 @@
  */
 import path from 'node:path';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import * as windowState from './window.js';
 import * as profileManager from './profile.js';
@@ -495,7 +496,15 @@ function createWindow(profile: any) {
   // 优先恢复上次关闭时的 URL（仅 http/https，且平台已确定）
   const lastUrl = profileData.lastUrl;
   console.log('[Cuckoo Code] 创建窗口: profile=' + profileData.id + ' providerChosen=' + providerChosen + ' lastUrl=' + (lastUrl || '(无)'));
-  if (providerChosen && provider && lastUrl && /^https?:\/\//i.test(lastUrl)) {
+  if (providerChosen && provider && provider.type === 'api') {
+    // API 型平台（如 Ollama）：加载内置聊天页，apiBase/model 经 query 传入
+    const chatPage = resolveSrc('ui/local-chat.html');
+    const qs = [];
+    if (provider.apiBase) qs.push('apiBase=' + encodeURIComponent(provider.apiBase));
+    if (provider.defaultModel) qs.push('model=' + encodeURIComponent(provider.defaultModel));
+    const suffix = qs.length ? ('?' + qs.join('&')) : '';
+    view.webContents.loadURL(pathToFileURL(chatPage).href + suffix);
+  } else if (providerChosen && provider && lastUrl && /^https?:\/\//i.test(lastUrl)) {
     view.webContents.loadURL(lastUrl);
   } else if (providerChosen && provider) {
     // 平台已确定且存在，直接进入平台首页

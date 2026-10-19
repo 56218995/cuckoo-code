@@ -17,6 +17,16 @@ export interface InputElement {
 export interface Provider {
   /** 平台唯一标识，如 'my-platform' */
   id: string;
+  /**
+   * 接入形态：
+   *  - 'web'（默认）：内嵌 AI 网页，靠 DOM/网络拦截拿回复
+   *  - 'api'：本地/远程 API 型，加载内置聊天页（如 Ollama）
+   */
+  type?: 'web' | 'api';
+  /** API 基地址（type='api' 时使用），如 http://127.0.0.1:11434 */
+  apiBase?: string;
+  /** 默认模型名（type='api' 时使用） */
+  defaultModel?: string;
   /** 显示名称 */
   name: string;
   /** 首页地址 */

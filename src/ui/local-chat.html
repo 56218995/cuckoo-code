@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>本地模型</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #16181d; color: #e4e6eb;
+    display: flex; flex-direction: column;
+    font-size: 14px;
+  }
+  .lc-top {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,.08);
+    background: #191c22; flex-shrink: 0;
+  }
+  .lc-top-label { font-size: 12px; color: #8a90b8; }
+  .lc-model {
+    background: rgba(255,255,255,.06); color: #e4e6eb;
+    border: 1px solid rgba(255,255,255,.12); border-radius: 8px;
+    padding: 5px 10px; font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+  .lc-model option { background: #191c22; color: #e4e6eb; }
+  .lc-device { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #8a90b8; cursor: pointer; user-select: none; }
+  .lc-device input { width: 14px; height: 14px; accent-color: #4d6bfe; cursor: pointer; margin: 0; }
+  .lc-status { margin-left: auto; font-size: 11.5px; color: #8a90b8; }
+  .lc-status.err { color: #ff6b7a; }
+  .lc-status.ok { color: #46b47e; }
+  .lc-clear {
+    background: none; border: 1px solid rgba(255,255,255,.12); color: #8a90b8;
+    border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+  }
+  .lc-clear:hover { background: rgba(255,255,255,.06); color: #e4e6eb; }
+
+  .lc-messages {
+    flex: 1; overflow-y: auto; padding: 20px 16px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .lc-msg { max-width: 82%; padding: 10px 14px; border-radius: 12px; line-height: 1.65; word-break: break-word; }
+  .lc-msg.user { align-self: flex-end; background: #2b3a67; color: #dfe4ff; }
+  .lc-msg.assistant { align-self: flex-start; background: rgba(255,255,255,.055); color: #e4e6eb; }
+  .lc-msg.think { align-self: flex-start; background: rgba(255,255,255,.03); color: #8a90b8; font-size: 12.5px; font-style: italic; }
+  .lc-msg pre { background: rgba(0,0,0,.35); padding: 10px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+  .lc-msg code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px; }
+  .lc-msg p { margin: 6px 0; }
+  .lc-empty { margin: auto; text-align: center; color: #5b6180; font-size: 13px; line-height: 1.8; }
+
+  .lc-bottom { border-top: 1px solid rgba(255,255,255,.08); padding: 12px 16px 14px; background: #191c22; flex-shrink: 0; }
+  .lc-input-wrap { display: flex; gap: 10px; align-items: flex-end; }
+  .lc-input {
+    flex: 1; min-height: 44px; max-height: 180px; resize: none;
+    background: rgba(255,255,255,.06); color: #e4e6eb;
+    border: 1px solid rgba(255,255,255,.12); border-radius: 11px;
+    padding: 11px 14px; font-size: 14px; font-family: inherit; line-height: 1.5;
+    outline: none;
+  }
+  .lc-input:focus { border-color: #6b83ff; }
+  .lc-send {
+    background: #4d6bfe; color: #fff; border: none; border-radius: 11px;
+    width: 44px; height: 44px; cursor: pointer; font-size: 17px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .lc-send:hover { background: #5b78ff; }
+  .lc-send:disabled { background: #3a3f52; cursor: not-allowed; }
+  .lc-hint { font-size: 11px; color: #5b6180; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="lc-top">
+    <span class="lc-top-label">模型</span>
+    <select class="lc-model" id="lc-model"><option value="">（加载中…）</option></select>
+    <label class="lc-device" title="GPU 模式下若 Ollama 报 CUDA 错误，请切回 CPU">
+      <input type="checkbox" id="lc-use-gpu" /> 用 GPU
+    </label>
+    <span class="lc-status" id="lc-status">连接中…</span>
+    <button class="lc-clear" id="lc-clear">清空对话</button>
+  </div>
+  <div class="lc-messages" id="lc-messages">
+    <div class="lc-empty">本地模型聊天<br><span style="font-size:11.5px">由 Ollama 提供推理，数据不出本机</span></div>
+  </div>
+  <div class="lc-bottom">
+    <div class="lc-input-wrap">
+      <textarea class="lc-input" id="lc-input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+      <button class="lc-send" id="lc-send" title="发送">↑</button>
+    </div>
+    <div class="lc-hint">历史保存在本机浏览器存储中</div>
+  </div>
+<script>
+(function () {
+  'use strict';
+  var qs = new URLSearchParams(location.search);
+  var API_BASE = qs.get('apiBase') || 'http://127.0.0.1:11434';
+  var DEFAULT_MODEL = qs.get('model') || '';
+  var STORE_KEY = 'cuckoo-local-chat-history-v1';
+  var MODEL_KEY = 'cuckoo-local-chat-model-v1';
+  var GPU_KEY = 'cuckoo-local-chat-gpu-v1';
+
+  var els = {
+    model: document.getElementById('lc-model'),
+    status: document.getElementById('lc-status'),
+    messages: document.getElementById('lc-messages'),
+    input: document.getElementById('lc-input'),
+    send: document.getElementById('lc-send'),
+    clear: document.getElementById('lc-clear'),
+    gpu: document.getElementById('lc-use-gpu'),
+  };
+
+  var history = [];       // [{role:'user'|'assistant', content:string}]
+  var streaming = false;
+  var abortCtl = null;
+
+  // ---------- 存储 ----------
+  function loadHistory() {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      if (raw) history = JSON.parse(raw) || [];
+    } catch (e) { history = []; }
+    renderHistory();
+  }
+  function saveHistory() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(history)); } catch (e) {}
+  }
+  function saveModel(m) {
+    try { localStorage.setItem(MODEL_KEY, m); } catch (e) {}
+  }
+  function useGpu() {
+    try { return localStorage.getItem(GPU_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  // ---------- 渲染 ----------
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  // 极简 Markdown：代码块 + 行内代码 + 粗体 + 换行
+  function renderMarkdown(text) {
+    var out = escapeHtml(text || '');
+    var parts = out.split(/```/);
+    var html = '';
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        // 代码块：去掉首行语言标识
+        var body = parts[i].replace(/^[a-zA-Z0-9_+-]*\n/, '');
+        html += '<pre><code>' + body + '</code></pre>';
+      } else {
+        var seg = parts[i]
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br>');
+        html += seg;
+      }
+    }
+    return html;
+  }
+
+  function scrollBottom() {
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  function clearEmptyTip() {
+    var tip = els.messages.querySelector('.lc-empty');
+    if (tip) tip.remove();
+  }
+
+  function appendBubble(role, content) {
+    clearEmptyTip();
+    var div = document.createElement('div');
+    div.className = 'lc-msg ' + role;
+    div.innerHTML = renderMarkdown(content);
+    els.messages.appendChild(div);
+    scrollBottom();
+    return div;
+  }
+
+  function renderHistory() {
+    els.messages.innerHTML = '';
+    if (!history.length) {
+      els.messages.innerHTML = '<div class="lc-empty">本地模型聊天<br><span style="font-size:11.5px">由 Ollama 提供推理，数据不出本机</span></div>';
+      return;
+    }
+    for (var i = 0; i < history.length; i++) {
+      appendBubble(history[i].role, history[i].content);
+    }
+  }
+
+  function setStatus(text, cls) {
+    els.status.textContent = text;
+    els.status.className = 'lc-status' + (cls ? ' ' + cls : '');
+  }
+
+  // ---------- 模型列表 ----------
+  function loadModels() {
+    setStatus('连接中…', '');
+    fetch(API_BASE + '/api/tags')
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        var models = (data && data.models) || [];
+        if (!models.length) {
+          els.model.innerHTML = '<option value="">（无可用模型）</option>';
+          setStatus('没有模型，请先 ollama pull', 'err');
+          return;
+        }
+        var saved = '';
+        try { saved = localStorage.getItem(MODEL_KEY) || ''; } catch (e) {}
+        var pick = DEFAULT_MODEL || saved || models[0].name;
+        els.model.innerHTML = models.map(function (m) {
+          return '<option value="' + escapeHtml(m.name) + '"' + (m.name === pick ? ' selected' : '') + '>' + escapeHtml(m.name) + '</option>';
+        }).join('');
+        setStatus('已连接', 'ok');
+      })
+      .catch(function (e) {
+        els.model.innerHTML = '<option value="">（连接失败）</option>';
+        setStatus('Ollama 未启动？', 'err');
+        console.error('[local-chat] 拉取模型失败:', e && e.message);
+      });
+  }
+
+  // ---------- 发送 ----------
+  function buildMessages(userText) {
+    var msgs = [];
+    // 历史里最后一条如果是同样的 user 文本（bridge 重填导致），不重复加
+    for (var i = 0; i < history.length; i++) {
+      msgs.push({ role: history[i].role, content: history[i].content });
+    }
+    msgs.push({ role: 'user', content: userText });
+    return msgs;
+  }
+
+  function setSending(on) {
+    streaming = on;
+    els.send.disabled = on;
+    els.input.disabled = on;
+  }
+
+  function sendMessage(userText) {
+    var text = (userText || '').trim();
+    if (!text || streaming) return;
+    var model = els.model.value;
+    if (!model) { setStatus('请先选择模型', 'err'); return; }
+
+    // 渲染用户气泡
+    history.push({ role: 'user', content: text });
+    saveHistory();
+    appendBubble('user', text);
+    els.input.value = '';
+    setSending(true);
+    setStatus('生成中…', '');
+
+    var assistantEl = appendBubble('assistant', '');
+    var accText = '';
+    var accThink = '';
+    var started = false;
+
+    abortCtl = new AbortController();
+
+    fetch(API_BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: model,
+        messages: buildMessages(text),
+        stream: true,
+        // 默认 CPU（Ollama CUDA 工具链不匹配时 GPU 会 500）；勾选「用 GPU」则放开
+        options: { num_gpu: useGpu() ? 999 : 0, num_ctx: 8192 },
+      }),
+      signal: abortCtl.signal,
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var buf = '';
+
+        function pump() {
+          return reader.read().then(function (chunk) {
+            if (chunk.done) return finish();
+            buf += decoder.decode(chunk.value, { stream: true });
+            var lines = buf.split('\n');
+            buf = lines.pop() || '';
+            for (var i = 0; i < lines.length; i++) {
+              var line = lines[i].trim();
+              if (!line) continue;
+              var obj = null;
+              try { obj = JSON.parse(line); } catch (e) { continue; }
+              if (obj.error) { throw new Error(obj.error); }
+              var msg = obj.message || {};
+              if (msg.thinking) {
+                accThink += msg.thinking;
+                dispatchStream(accThink, accText, false);
+              }
+              if (msg.content) {
+                accText += msg.content;
+                started = true;
+                assistantEl.innerHTML = renderMarkdown(accText);
+                scrollBottom();
+                dispatchStream(accThink, accText, false);
+              }
+              if (obj.done) {
+                return finish();
+              }
+            }
+            return pump();
+          });
+        }
+
+        function finish() {
+          setSending(false);
+          setStatus('已连接', 'ok');
+          if (!accText && !accThink) {
+            assistantEl.innerHTML = '<span style="color:#8a90b8">（空回复）</span>';
+            dispatchError('模型返回空内容', null);
+            return;
+          }
+          history.push({ role: 'assistant', content: accText });
+          saveHistory();
+          dispatchStream(accThink, accText, true);
+          dispatchResponse(accText, accThink);
+        }
+
+        return pump();
+      })
+      .catch(function (e) {
+        setSending(false);
+        if (e && e.name === 'AbortError') {
+          setStatus('已停止', '');
+          return;
+        }
+        setStatus('请求失败', 'err');
+        var msg = (e && e.message) || String(e);
+        assistantEl.innerHTML = '<span style="color:#ff6b7a">请求失败：' + escapeHtml(msg) + '</span>';
+        dispatchError(msg, null);
+      });
+  }
+
+  // ---------- 与 Cuckoo bridge 的事件契约 ----------
+  function dispatchStream(think, text, finished) {
+    try {
+      window.dispatchEvent(new CustomEvent('cuckoo-ai-stream', {
+        detail: { think: think || '', text: text || '', finished: !!finished, accumulatedTokens: null },
+      }));
+    } catch (e) {}
+  }
+
+  function dispatchResponse(text, think) {
+    try {
+      window.dispatchEvent(new CustomEvent('cuckoo-ai-response', {
+        detail: {
+          text: text || '',
+          finished: true,
+          status: 'finished',
+          tokenUsage: null,
+          msgIds: null,
+        },
+      }));
+    } catch (e) {}
+    // 思考内容单独作为一条"思考气泡"记录，便于回溯（不进入 history）
+    if (think && think.trim()) {
+      var t = document.createElement('div');
+      t.className = 'lc-msg think';
+      t.textContent = '思考：' + think.slice(0, 500);
+      els.messages.insertBefore(t, els.messages.lastChild);
+    }
+  }
+
+  function dispatchError(reason, httpStatus) {
+    try {
+      window.dispatchEvent(new CustomEvent('cuckoo-ai-error', {
+        detail: { text: '', status: 'error', reason: reason || 'unknown', httpStatus: httpStatus || null },
+      }));
+    } catch (e) {}
+  }
+
+  // ---------- 交互 ----------
+  function doSend() {
+    sendMessage(els.input.value);
+  }
+
+  els.send.addEventListener('click', doSend);
+
+  els.input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      doSend();
+    }
+  });
+
+  els.input.addEventListener('input', function () {
+    els.input.style.height = 'auto';
+    els.input.style.height = Math.min(els.input.scrollHeight, 180) + 'px';
+  });
+
+  els.model.addEventListener('change', function () {
+    saveModel(els.model.value);
+  });
+
+  els.gpu.checked = useGpu();
+  els.gpu.addEventListener('change', function () {
+    try { localStorage.setItem(GPU_KEY, els.gpu.checked ? '1' : '0'); } catch (e) {}
+  });
+
+  els.clear.addEventListener('click', function () {
+    if (!history.length) return;
+    if (!confirm('确定清空当前对话？')) return;
+    history = [];
+    saveHistory();
+    renderHistory();
+  });
+
+  // 暴露给外部（调试/自动化）
+  window.__cuckooLocalChat = {
+    send: function (text) { sendMessage(text); },
+    getHistory: function () { return history.slice(); },
+    clear: function () { history = []; saveHistory(); renderHistory(); },
+  };
+
+  // ---------- 启动 ----------
+  loadHistory();
+  loadModels();
+})();
+</script>
+</body>
+</html>

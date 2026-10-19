@@ -299,6 +299,89 @@ function uninstallPlugin(id: string): { success: boolean; error?: string } {
   return { success: true };
 }
 
+/**
+ * 从本地目录导入插件。
+ * 校验 plugin.json（id 合法）、禁止覆盖已安装、默认禁用。
+ */
+function importPluginFromDir(srcDir: string): InstallResult {
+  if (!srcDir || typeof srcDir !== 'string') {
+    return { success: false, error: '缺少源目录' };
+  }
+  let stat;
+  try { stat = fs.statSync(srcDir); } catch { return { success: false, error: '目录不存在：' + srcDir }; }
+  if (!stat.isDirectory()) return { success: false, error: '不是目录：' + srcDir };
+
+  const mr = readManifest(srcDir);
+  if (!mr.ok || !mr.manifest) return { success: false, error: '插件清单无效：' + (mr.error || '未知原因') };
+  const id = mr.manifest.id;
+  if (!isValidPluginId(id)) return { success: false, error: '插件 id 非法：' + id };
+
+  const targetDir = getPluginDir(id);
+  if (fs.existsSync(targetDir)) return { success: false, error: '插件已安装：' + id + '（请先卸载）' };
+
+  const srcResolved = path.resolve(srcDir);
+  const dstResolved = path.resolve(targetDir);
+  if (srcResolved === dstResolved || dstResolved.startsWith(srcResolved + path.sep)) {
+    return { success: false, error: '源目录与目标目录冲突' };
+  }
+
+  try {
+    fs.mkdirSync(getPluginsDir(), { recursive: true });
+    fs.cpSync(srcDir, targetDir, {
+      recursive: true,
+      filter: (src) => path.basename(src) !== INSTALL_META_FILE,
+    });
+  } catch (err: any) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    return { success: false, error: '复制失败：' + (err && err.message ? err.message : String(err)) };
+  }
+
+  try {
+    fs.writeFileSync(
+      path.join(targetDir, INSTALL_META_FILE),
+      JSON.stringify({ repo: '', url: '', branch: '', installedAt: new Date().toISOString(), version: mr.manifest.version || '' }, null, 2),
+      'utf-8'
+    );
+  } catch { /* 不影响结果 */ }
+
+  setPluginEnabled(id, false);
+  return {
+    success: true,
+    plugin: { manifest: mr.manifest, dir: targetDir, contributes: deriveContributes(targetDir) },
+  };
+}
+
+/**
+ * 从本地 zip 导入插件。zip 顶层若只有单个目录（含 plugin.json），自动剥离。
+ */
+async function importPluginFromZip(zipPath: string): Promise<InstallResult> {
+  if (!zipPath || typeof zipPath !== 'string') return { success: false, error: '缺少 zip 路径' };
+  try { if (!fs.statSync(zipPath).isFile()) return { success: false, error: '不是文件：' + zipPath }; }
+  catch { return { success: false, error: '文件不存在：' + zipPath }; }
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cuckoo-plugin-zip-'));
+  const stageDir = path.join(tmpRoot, 'stage');
+  fs.mkdirSync(stageDir, { recursive: true });
+  try {
+    try {
+      await extract({ file: zipPath, cwd: stageDir, filter: safeEntryFilter as any });
+    } catch (err: any) {
+      return { success: false, error: '解压失败：' + (err && err.message ? err.message : String(err)) };
+    }
+    let root = stageDir;
+    if (!fs.existsSync(path.join(root, 'plugin.json'))) {
+      const entries = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory());
+      const files = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isFile());
+      if (entries.length === 1 && files.length === 0) {
+        root = path.join(root, entries[0].name);
+      }
+    }
+    return importPluginFromDir(root);
+  } finally {
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+}
+
 export {
   INSTALL_META_FILE,
   safeEntryFilter,
@@ -306,6 +389,8 @@ export {
   listInstalledPlugins,
   installPlugin,
   uninstallPlugin,
+  importPluginFromDir,
+  importPluginFromZip,
   parseSource,
 };
 
