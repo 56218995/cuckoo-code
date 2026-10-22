@@ -2,7 +2,7 @@
  * 工作区（会话）页：按项目目录分组，列出会话，点击导航。
  * 数据：listAllSessions() → [{ sessionId, projectDir, title, createdAt, updatedAt }]
  */
-import { api, escapeHtml, escapeAttr, ckPrompt } from '../shared.js';
+import { api, escapeHtml, escapeAttr, ckPrompt, ckConfirm, ckAlert } from '../shared.js';
 
 /** 项目目录 → 显示名（取最后一段） */
 function baseName(dir: string): string {
@@ -82,6 +82,12 @@ function renderItem(s: any, currentSessionId: string | null, archived: boolean =
   const renameBtn = '<span class="ck-ws-act" data-act="rename" title="重命名">' +
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>' +
   '</span>';
+  // 删除按钮（子节点不显示，避免误删子代理/压缩历史记录）
+  const delBtn = sub
+    ? ''
+    : '<span class="ck-ws-act ck-ws-act-danger" data-act="delete" title="删除">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' +
+      '</span>';
   const act = archived
     ? '<span class="ck-ws-act" data-act="unarchive" title="取消归档">' +
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M12 10v6"/><path d="M9 13l3-3 3 3"/></svg>' +
@@ -98,11 +104,11 @@ function renderItem(s: any, currentSessionId: string | null, archived: boolean =
         '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>' +
       '</span>'
     : (sub ? '<span class="ck-ws-expand ck-ws-expand-hidden"></span>' : '<span class="ck-ws-expand ck-ws-expand-hidden"></span>');
-  return '<div class="ck-ws-item' + (isCur ? ' current' : '') + (sub ? ' sub' : '') + '" data-session-id="' + escapeAttr(s.sessionId) + '" data-name="' + escapeAttr(label) + '" title="' + escapeAttr(s.sessionId) + '">' +
+  return '<div class="ck-ws-item' + (isCur ? ' current' : '') + (sub ? ' sub' : '') + '" data-session-id="' + escapeAttr(s.sessionId) + '" data-name="' + escapeAttr(label) + '" data-project-dir="' + escapeAttr(s.projectDir || '') + '" title="' + escapeAttr(s.sessionId) + '">' +
     caret +
     '<span class="ck-ws-name">' + escapeHtml(label) + '</span>' +
     (time ? '<span class="ck-ws-time">' + escapeHtml(time) + '</span>' : '') +
-    '<span class="ck-ws-acts">' + renameBtn + act + '</span>' +
+    '<span class="ck-ws-acts">' + renameBtn + act + delBtn + '</span>' +
   '</div>';
 }
 
@@ -191,6 +197,17 @@ function bindWorkspaceEvents(listEl: HTMLElement): void {
     });
     el.addEventListener('mouseleave', hideDirTip);
   });
+  // 项目组标题右击 → 显示「在文件资源管理器中显示」
+  listEl.querySelectorAll('.ck-ws-group-title').forEach((el: any) => {
+    el.addEventListener('contextmenu', (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dir = el.getAttribute('data-project-dir') || '';
+      if (!dir) return;
+      showWsCtxMenu(e.clientX, e.clientY, dir, el);
+    });
+  });
+
   // 组按钮：新建 / 归档项目
   listEl.querySelectorAll('.ck-ws-gact').forEach((btn: any) => {
     btn.addEventListener('click', async (e: any) => {
@@ -268,12 +285,150 @@ function bindWorkspaceEvents(listEl: HTMLElement): void {
         loadWorkspaces();
         return;
       }
+      // 删除（不可恢复，需确认）
+      if (e.target.closest('[data-act="delete"]')) {
+        e.stopPropagation();
+        const id = el.dataset.sessionId;
+        if (!id || !api.deleteSession) return;
+        const name = el.dataset.name || id;
+        const ok = await ckConfirm(
+          '确定删除对话「' + name + '」？\n\n仅删除 Cuckoo 的本地记录（侧边栏条目），不会删除 AI 网页端的对话。此操作不可恢复。',
+          '删除对话'
+        );
+        if (!ok) return;
+        try {
+          const r = await api.deleteSession(id);
+          if (!r || !r.success) {
+            await ckAlert((r && r.error) || '删除失败');
+            return;
+          }
+        } catch (err: any) {
+          await ckAlert('删除失败: ' + (err && err.message ? err.message : err));
+          return;
+        }
+        loadWorkspaces();
+        return;
+      }
       const id = el.dataset.sessionId;
       if (!id || !api.navigateSession) return;
       try { await api.navigateSession(id); } catch (_) { /* ignore */ }
     });
+
   });
 }
+
+/** 当前右击目标的项目目录（供菜单点击与快捷键共用） */
+let wsCtxDir = '';
+/** 触发菜单的主节点元素（鼠标移出它即关闭菜单） */
+let wsCtxAnchorEl: HTMLElement | null = null;
+
+/** 显示工作区右键菜单 */
+function showWsCtxMenu(x: number, y: number, dir: string, anchorEl?: HTMLElement | null): void {
+  ensureCtxMenuInit(); // 首次显示时绑定全局监听
+  const menu = document.getElementById('ws-ctx-menu');
+  if (!menu) return;
+  wsCtxDir = dir;
+  wsCtxAnchorEl = anchorEl || null;
+  menu.classList.remove('cuckoo-hidden');
+  // 先显示再量尺寸，避免超出视口
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  const w = menu.offsetWidth || 200;
+  const h = menu.offsetHeight || 40;
+  const left = Math.min(x, window.innerWidth - w - 8);
+  const top = Math.min(y, window.innerHeight - h - 8);
+  menu.style.left = Math.max(4, left) + 'px';
+  menu.style.top = Math.max(4, top) + 'px';
+}
+
+/** 隐藏工作区右键菜单 */
+function hideWsCtxMenu(): void {
+  const menu = document.getElementById('ws-ctx-menu');
+  if (menu) menu.classList.add('cuckoo-hidden');
+  wsCtxDir = '';
+  wsCtxAnchorEl = null;
+}
+
+/** 在资源管理器中打开指定目录 */
+async function revealInExplorer(dir: string): Promise<void> {
+  if (!dir || !api.revealInExplorer) return;
+  try {
+    const r = await api.revealInExplorer(dir);
+    if (r && !r.success) await ckAlert(r.error || '打开失败');
+  } catch (err: any) {
+    await ckAlert('打开失败: ' + (err && err.message ? err.message : err));
+  }
+}
+
+/** 当前选中的会话项目目录（用于快捷键）——优先"当前会话"所在组 */
+function getActiveSessionDir(): string {
+  const item = document.querySelector('.ck-ws-item.current') as any;
+  if (item) {
+    const dir = item.dataset.projectDir || '';
+    if (dir) return dir;
+  }
+  // 回退：当前项目目录
+  return currentDir || '';
+}
+
+// ===== 右键菜单交互（懒初始化：首次显示菜单时绑定全局监听）=====
+let ctxMenuInited = false;
+function ensureCtxMenuInit(): void {
+  if (ctxMenuInited) return;
+  const menu = document.getElementById('ws-ctx-menu');
+  if (!menu) return; // DOM 未就绪，下次再试
+  ctxMenuInited = true;
+  menu.addEventListener('click', async (e: any) => {
+    const item = e.target.closest('[data-ctxact]');
+    if (!item) return;
+    const act = item.getAttribute('data-ctxact');
+    const dir = wsCtxDir;
+    hideWsCtxMenu();
+    if (act === 'reveal' && dir) await revealInExplorer(dir);
+  });
+  // 点击别处关闭（用 mousedown 捕获，避免子元素 stopPropagation 阻断 click）
+  document.addEventListener('mousedown', (e: any) => {
+    if (!e.target.closest('#ws-ctx-menu')) hideWsCtxMenu();
+  }, true);
+  // 补充：click 阶段再兜一次（某些场景只有 click 没有 mousedown）
+  document.addEventListener('click', (e: any) => {
+    if (!e.target.closest('#ws-ctx-menu')) hideWsCtxMenu();
+  }, true);
+  // 鼠标移到非主节点（既不是菜单、也不是触发菜单的那个标题）→ 关闭
+  document.addEventListener('mousemove', (e: any) => {
+    if (!wsCtxDir) return; // 菜单没开，跳过
+    if (e.target.closest('#ws-ctx-menu')) return; // 在菜单上，保持
+    if (wsCtxAnchorEl && (wsCtxAnchorEl === e.target || wsCtxAnchorEl.contains(e.target))) return; // 在主节点上，保持
+    hideWsCtxMenu();
+  }, true);
+  // 右键关闭：只保留"主节点"（项目组标题）能重新弹菜单，其余一律关闭
+  document.addEventListener('contextmenu', (e: any) => {
+    if (e.target.closest('#ws-ctx-menu')) return;
+    if (e.target.closest('.ck-ws-group-title')) return; // 主节点自己处理
+    hideWsCtxMenu();
+  }, true);
+  // Esc 关闭
+  document.addEventListener('keydown', (e: any) => {
+    if (e.key === 'Escape') hideWsCtxMenu();
+  });
+  // 滚动 / 窗口尺寸变化时关闭（菜单会与内容错位）
+  document.querySelector('.ck-panel-body')?.addEventListener('scroll', () => hideWsCtxMenu(), true);
+  window.addEventListener('resize', () => hideWsCtxMenu());
+  window.addEventListener('blur', () => hideWsCtxMenu());
+}
+
+// ===== 快捷键 Shift+Alt+R：在资源管理器中显示当前会话的项目目录 =====
+document.addEventListener('keydown', async (e: any) => {
+  if (!e.shiftKey || !e.altKey) return;
+  if (String(e.code || '').toLowerCase() !== 'keyr' && String(e.key || '').toLowerCase() !== 'r') return;
+  e.preventDefault();
+  const dir = getActiveSessionDir();
+  if (!dir) {
+    await ckAlert('当前对话没有关联的项目目录');
+    return;
+  }
+  await revealInExplorer(dir);
+});
 
 export async function loadWorkspaces(): Promise<void> {
   const listEl = document.getElementById('ws-list');
@@ -353,7 +508,7 @@ export async function loadWorkspaces(): Promise<void> {
       const isOpen = (dir === currentDir) || expandedDirs.has(dir);
       const isArchOpen = archivedOpen.has(dir);
       return '<div class="ck-ws-group' + (isOpen ? ' open' : '') + '" data-dir="' + escapeAttr(dir) + '">' +
-        '<div class="ck-ws-group-title" title="' + escapeAttr(dir) + '">' +
+        '<div class="ck-ws-group-title" title="' + escapeAttr(dir) + '" data-project-dir="' + escapeAttr(dir) + '">' +
           '<svg class="ck-ws-caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>' +
           '<svg class="ck-ws-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>' +
           '<span class="ck-ws-gname">' + escapeHtml(baseName(dir)) + '</span>' +

@@ -109,6 +109,8 @@ const shellAPI = {
   listAllSessions: () => ipcRenderer.invoke('list-all-sessions'),
   navigateSession: (sessionId: string) => ipcRenderer.invoke('navigate-session', { sessionId }),
   setSessionArchived: (sessionId: string, archived: boolean) => ipcRenderer.invoke('set-session-archived', { sessionId, archived }),
+  deleteSession: (sessionId: string) => ipcRenderer.invoke('delete-session', { sessionId }),
+  revealInExplorer: (dir: string) => ipcRenderer.invoke('reveal-in-explorer', { dir }),
   getDirInfo: (dir: string) => ipcRenderer.invoke('get-dir-info', { dir }),
   // 项目文件树（只读浏览）
   listProjectTree: () => ipcRenderer.invoke('list-project-tree'),

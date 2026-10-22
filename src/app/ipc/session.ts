@@ -105,6 +105,20 @@ function registerSessionIpc(): void {
     }
   });
 
+  // 在系统文件资源管理器中显示目录（打开该目录）
+  ipcMain.handle('reveal-in-explorer', async (_event: any, { dir }: any) => {
+    if (!dir || typeof dir !== 'string') return { success: false, error: '缺少目录' };
+    try {
+      const fs = require('node:fs');
+      if (!fs.existsSync(dir)) return { success: false, error: '目录不存在: ' + dir };
+      const { shell } = require('electron');
+      await shell.openPath(dir);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+
   // 列出会话（返回 { sessionId, projectDir, title, createdAt, updatedAt }）
   ipcMain.handle('list-sessions', async (event: any) => {
     const ctx = windowState.getContextByWebContents(event.sender);
@@ -168,6 +182,19 @@ function registerSessionIpc(): void {
     if (!store || !sessionId) return { success: false, error: 'no-store-or-id' };
     store.setSessionArchived(sessionId, archived === true);
     return { success: true };
+  });
+
+  // 删除会话记录（本地记录，不删网页端对话）
+  ipcMain.handle('delete-session', async (event: any, { sessionId }: any) => {
+    const ctx = windowState.getContextByWebContents(event.sender);
+    const store = ctx ? ctx.sessionStore : null;
+    if (!store || !sessionId) return { success: false, error: 'no-store-or-id' };
+    try {
+      store.deleteSession(sessionId);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
   });
 
   // 取项目目录信息（全路径 + 创建时间），供侧边栏悬停卡片

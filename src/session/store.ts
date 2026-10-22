@@ -134,6 +134,22 @@ function createSessionStore(profileId: string, storeDir: string, windowState: an
     writeSessionStore(store);
   }
 
+  /**
+   * 删除会话记录（仅从本地记录中移除；不删除网页端对话）
+   * 子代理/压缩历史等引用它的条目保留（避免误删父子链），但该 sessionId 本身被移除。
+   */
+  function deleteSession(sessionId: string): void {
+    if (!sessionId) return;
+    const store = readSessionStore();
+    if (store[sessionId] == null) return;
+    delete store[sessionId];
+    // 若删除的是"当前会话"，清空当前会话 ID，避免指向已不存在的条目
+    if (state.currentSessionId === sessionId) {
+      state.currentSessionId = null;
+    }
+    writeSessionStore(store);
+  }
+
   /** 更新会话标题（AI 命名对话 / 网页标题抓取）。条目不存在时新建。 */
   function updateSessionTitle(sessionId: string, title: string): void {
     if (!sessionId || !title) return;
@@ -331,6 +347,7 @@ function createSessionStore(profileId: string, storeDir: string, windowState: an
     setSessionLineage,
     supersedeSession,
     setSessionArchived,
+    deleteSession,
     getArchivedProjects,
     setProjectArchived,
     extractSessionIdFromUrl,

@@ -433,12 +433,22 @@
     background: var(--ck-surface); border: 1px solid var(--ck-border);
     border-radius: 9px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
   }
+  .ck-ctx-menu.cuckoo-hidden { display: none; }
   .ck-ctx-item {
     padding: 7px 10px; border-radius: 6px; font-size: 12px;
     color: var(--ck-text-2); cursor: pointer; white-space: nowrap;
   }
   .ck-ctx-item:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
   .ck-ctx-item-new { color: var(--ck-primary); }
+  /* 带快捷键提示的菜单项：label 左、kbd 右 */
+  .ck-ctx-item:has(.ck-ctx-kbd) {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  }
+  .ck-ctx-kbd {
+    font-size: 10.5px; color: var(--ck-text-dim);
+    font-family: ui-monospace, Consolas, monospace;
+    letter-spacing: .2px; flex-shrink: 0;
+  }
   /* 收起：只隐藏面板，保留图标栏（宽度从 320 → 46）*/
   .ck-sidebar.ck-collapsed { width: 46px; }
   .ck-sidebar.ck-collapsed .ck-panel { display: none; }
@@ -599,6 +609,7 @@
     color: var(--ck-text-dim); cursor: pointer;
   }
   .ck-ws-act:hover { background: var(--ck-surface-hover); color: var(--ck-text); }
+  .ck-ws-act-danger:hover { background: rgba(229, 72, 77, 0.14); color: var(--ck-danger); }
   .ck-ws-act svg { width: 13px; height: 13px; }
   /* 展开三角（子代理/压缩历史）：右三角，展开旋转 90° */
   .ck-ws-expand {
