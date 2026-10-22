@@ -16,6 +16,81 @@ const { ipcMain } = require('electron');
 
 let feishuInited = false;
 
+// ===== 任务状态卡片（每窗口一张，原地更新）=====
+interface TaskState {
+  /** 飞书消息 ID（用于原地更新） */
+  messageId: string;
+  /** 绑定的群 */
+  chatId: string;
+  /** 任务标题（用户消息摘要） */
+  title: string;
+  /** 当前阶段 */
+  stage: feishuClient.TaskStage;
+  /** 阶段详情 */
+  detail?: string;
+  /** 开始时间戳 */
+  startedAt: number;
+  /** 已完成的操作记录 */
+  history: string[];
+  /** 心跳定时器 */
+  heartbeat?: any;
+}
+/** profileId → 当前任务状态 */
+const taskStates = new Map<string, TaskState>();
+
+/** 渲染阶段为简短描述（用于 history） */
+function stageLabel(stage: feishuClient.TaskStage, detail?: string): string {
+  if (stage === 'tool') return '🔧 ' + (detail || '工具');
+  if (stage === 'thinking') return '🤔 思考中';
+  if (stage === 'done') return '✅ 完成';
+  if (stage === 'failed') return '❌ 失败' + (detail ? '：' + detail : '');
+  return '▶️ 开始';
+}
+
+/** 推送/更新某窗口的任务状态卡片 */
+async function syncTaskCard(profileId: string, patch: Partial<TaskState> & { title?: string }): Promise<void> {
+  const cur = taskStates.get(profileId);
+  if (!cur) return;
+  if (patch.stage) cur.stage = patch.stage;
+  if (patch.detail !== undefined) cur.detail = patch.detail;
+  if (patch.title) cur.title = patch.title;
+  // history 由调用方直接 push
+  const status: feishuClient.TaskStatusCard = {
+    title: cur.title,
+    stage: cur.stage,
+    detail: cur.detail,
+    elapsedSec: (Date.now() - cur.startedAt) / 1000,
+    history: cur.history,
+  };
+  const r = await feishuClient.updateStatusCard(cur.messageId, status);
+  if (!r.success) {
+    console.warn('[Feishu] 状态卡片更新失败:', r.error, '（将降级为新发消息）');
+    // 降级：发新消息
+    const nr = await feishuClient.sendStatusCard(status, cur.chatId);
+    if (nr.success && nr.messageId) cur.messageId = nr.messageId;
+  }
+}
+
+/** 结束任务并清理心跳 */
+function endTask(profileId: string): void {
+  const cur = taskStates.get(profileId);
+  if (!cur) return;
+  if (cur.heartbeat) {
+    clearInterval(cur.heartbeat);
+    cur.heartbeat = undefined;
+  }
+  // 保留 60 秒后清理，避免内存泄漏
+  setTimeout(() => {
+    const t = taskStates.get(profileId);
+    if (t && t.stage !== 'running' && t.stage !== 'thinking' && t.stage !== 'tool') {
+      taskStates.delete(profileId);
+    }
+  }, 60000);
+}
+
+/** 心跳间隔（毫秒）：60 秒 */
+const HEARTBEAT_MS = 60000;
+
 /**
  * 飞书来消息 → 按 chatId 找到"绑定了该群的窗口" → 转发给它的 AI 页面。
  * - 群消息（chatId 非空）：只发给绑了该群的窗口
@@ -188,8 +263,8 @@ function registerFeishuIpc(): void {
     const ctx = windowState.getContextByWebContents(event.sender);
     const profile = ctx ? getProfileById(ctx.profileId) : null;
     const chatId = (profile && profile.feishuChatId) || '';
-    if (!chatId) {
-      // 该窗口未绑定群：不推送（按需求：未绑定=飞书功能关闭）
+    // 未绑定群时允许单聊回退（sendText/sendStatusCard 内部会用 targetOpenId）
+    if (!chatId && !cfg.targetOpenId) {
       return { success: false, error: 'no-chat-bound' };
     }
     const type = payload && payload.type;
@@ -205,21 +280,89 @@ function registerFeishuIpc(): void {
       if (!r.success) console.warn('[Feishu] 推送失败（' + label + '）:', r.error);
       return r;
     };
+    const profileId = (ctx && ctx.profileId) || '';
     try {
       if (type === 'user-message') {
         if (!cfg.pushUserMessage) return { success: true };
         const t = String(payload.text || '').trim();
-        if (t) return await push('👤 我：' + t, 'user-message');
+        if (!t) return { success: true };
+        // 用户发新消息 = 新任务开始：先推送用户消息，再创建状态卡片
+        await push('👤 我：' + t, 'user-message');
+        // 若已有旧任务，先结束它
+        if (profileId && taskStates.has(profileId)) endTask(profileId);
+        if (profileId) {
+          const title = t.length > 40 ? t.slice(0, 40) + '…' : t;
+          const init: feishuClient.TaskStatusCard = { title, stage: 'running', elapsedSec: 0, history: ['▶️ 开始'] };
+          const created = await feishuClient.sendStatusCard(init, chatId);
+          if (created.success && created.messageId) {
+            const st: TaskState = {
+              messageId: created.messageId,
+              chatId,
+              title,
+              stage: 'running',
+              startedAt: Date.now(),
+              history: ['▶️ 开始'],
+            };
+            // 心跳：每分钟更新已运行时长
+            st.heartbeat = setInterval(() => {
+              const cur = taskStates.get(profileId);
+              if (!cur) return;
+              feishuClient.updateStatusCard(cur.messageId, {
+                title: cur.title,
+                stage: cur.stage,
+                detail: cur.detail,
+                elapsedSec: (Date.now() - cur.startedAt) / 1000,
+                history: cur.history,
+              }).catch(() => {});
+            }, HEARTBEAT_MS);
+            taskStates.set(profileId, st);
+          }
+        }
+        return { success: true };
       } else if (type === 'ai-reply') {
         if (!cfg.pushAiReply) return { success: true };
         const t = String(payload.text || '').trim();
-        if (t) return await pushMd('**🤖 AI：**\n\n' + t, 'ai-reply');
+        if (!t) return { success: true };
+        await pushMd('**🤖 AI：**\n\n' + t, 'ai-reply');
+        // 任务完成：更新状态卡片
+        if (profileId && taskStates.has(profileId)) {
+          const cur = taskStates.get(profileId)!;
+          cur.history.push('✅ 完成');
+          await syncTaskCard(profileId, { stage: 'done' });
+          endTask(profileId);
+        }
+        return { success: true };
       } else if (type === 'tool-start') {
         if (!cfg.pushToolStatus) return { success: true };
-        return await push(cfg.pushToolName && payload.toolName ? '🔧 正在调用工具：' + payload.toolName : '🔧 AI 正在调用工具…', 'tool-start');
+        const toolName = String((payload && payload.toolName) || '').trim();
+        const label = toolName ? (cfg.pushToolName ? toolName : '工具') : '工具';
+        // 更新状态卡片（不单独发消息，避免刷屏）
+        if (profileId && taskStates.has(profileId)) {
+          const cur = taskStates.get(profileId)!;
+          cur.history.push(stageLabel('tool', toolName || ''));
+          await syncTaskCard(profileId, { stage: 'tool', detail: label });
+          return { success: true };
+        }
+        // 无任务卡片时，降级为独立消息
+        return await push('🔧 AI 正在调用工具…', 'tool-start');
       } else if (type === 'tool-end') {
         if (!cfg.pushToolStatus) return { success: true };
-        return await push('✅ 工具调用完成', 'tool-end');
+        // 工具结束 → 回到思考阶段（不单独发消息）
+        if (profileId && taskStates.has(profileId)) {
+          await syncTaskCard(profileId, { stage: 'thinking', detail: '' });
+          return { success: true };
+        }
+        return { success: true };
+      } else if (type === 'task-error') {
+        // 任务失败（由 bridge 在 AI 出错时上报）
+        if (profileId && taskStates.has(profileId)) {
+          const cur = taskStates.get(profileId)!;
+          const errMsg = String((payload && payload.error) || '未知错误');
+          cur.history.push('❌ ' + errMsg);
+          await syncTaskCard(profileId, { stage: 'failed', detail: errMsg });
+          endTask(profileId);
+        }
+        return { success: true };
       }
     } catch (err: any) {
       console.error('[Feishu] 推送异常:', err.message);

@@ -182,9 +182,43 @@ function setTaskStatus(running: boolean): void {
  * 显示工具调用遮罩（工具执行中提示 + 停止按钮；不拦截页面事件）
  * @param onCancel 传入时显示「停止」按钮（等待发送阶段用），点击触发该回调
  */
-function showToolMask(onCancel?: () => void): void {
+/** 工具遮罩的开始时间与计时器 */
+let toolMaskStartedAt = 0;
+let toolMaskTimer: any = null;
+/** 当前遮罩文案（默认工具执行中） */
+let toolMaskLabel = '工具调用执行中，请不要有额外操作';
+
+/** 格式化时长为 "1分05秒" / "23秒" */
+function fmtElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m > 0 ? (m + '分' + String(s).padStart(2, '0') + '秒') : (s + '秒');
+}
+
+function showToolMask(onCancel?: () => void, label?: string): void {
   const el = document.getElementById('cuckoo-tool-mask');
   if (el) el.classList.remove('cuckoo-hidden');
+  // 更新文案
+  if (label) {
+    toolMaskLabel = label;
+    const txt = document.querySelector('#cuckoo-tool-mask .cuckoo-tool-mask-text');
+    if (txt) {
+      // 保留计时器 span
+      txt.innerHTML = label + '<span id="cuckoo-tool-mask-timer" class="cuckoo-tool-mask-timer"></span>';
+    }
+  }
+  // 启动计时（仅在首次显示时计时，重复调用不重置）
+  if (!toolMaskStartedAt) {
+    toolMaskStartedAt = Date.now();
+    const update = () => {
+      const t = document.getElementById('cuckoo-tool-mask-timer');
+      if (t) t.textContent = '（已运行 ' + fmtElapsed(Date.now() - toolMaskStartedAt) + '）';
+    };
+    update();
+    if (toolMaskTimer) clearInterval(toolMaskTimer);
+    toolMaskTimer = setInterval(update, 1000);
+  }
   const btn = document.getElementById('cuckoo-tool-mask-cancel') as any;
   if (btn) {
     if (onCancel) {
@@ -200,6 +234,20 @@ function showToolMask(onCancel?: () => void): void {
 }
 
 /**
+ * 任务状态控制（AI 思考 / 工具执行 / 完成全程可见）
+ * @param running true=开始/继续，false=结束
+ * @param label 状态文案，如「AI 正在思考…」「正在执行：bash」
+ * @param onCancel 可选，显示停止按钮
+ */
+function setTaskRunning(running: boolean, label?: string, onCancel?: () => void): void {
+  if (running) {
+    showToolMask(onCancel, label);
+  } else {
+    hideToolMask();
+  }
+}
+
+/**
  * 隐藏工具调用遮罩
  */
 function hideToolMask(): void {
@@ -207,6 +255,11 @@ function hideToolMask(): void {
   if (el) el.classList.add('cuckoo-hidden');
   const btn = document.getElementById('cuckoo-tool-mask-cancel') as any;
   if (btn) { btn.classList.add('cuckoo-hidden'); btn.onclick = null; }
+  // 停止计时
+  if (toolMaskTimer) { clearInterval(toolMaskTimer); toolMaskTimer = null; }
+  toolMaskStartedAt = 0;
+  const t = document.getElementById('cuckoo-tool-mask-timer');
+  if (t) t.textContent = '';
 }
 
 /**
@@ -412,6 +465,7 @@ export {
   showToast,
   showConfirmDialog,
   setTaskStatus,
+  setTaskRunning,
   showToolMask,
   hideToolMask,
   showOverlay,

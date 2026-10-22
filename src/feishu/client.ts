@@ -331,5 +331,121 @@ async function sendMarkdown(md: string, chatId?: string): Promise<{ success: boo
   return { success: true };
 }
 
-export { connect, disconnect, sendText, sendMarkdown, getStatus, readConfig, listChats };
+/** 任务状态卡片的阶段 */
+export type TaskStage = 'running' | 'thinking' | 'tool' | 'done' | 'failed';
+
+export interface TaskStatusCard {
+  /** 任务标题（通常是用户消息摘要） */
+  title: string;
+  /** 当前阶段 */
+  stage: TaskStage;
+  /** 阶段详情（如工具名、错误信息） */
+  detail?: string;
+  /** 已运行时长（秒） */
+  elapsedSec?: number;
+  /** 已完成的操作记录 */
+  history?: string[];
+}
+
+/** 阶段对应的图标与文案 */
+function stageIcon(stage: TaskStage): string {
+  switch (stage) {
+    case 'running': return '▶️';
+    case 'thinking': return '🤔';
+    case 'tool': return '🔧';
+    case 'done': return '✅';
+    case 'failed': return '❌';
+    default: return '⏳';
+  }
+}
+
+/** 把时长格式化为 mm:ss */
+function fmtDuration(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return (m > 0 ? m + '分' : '') + r + '秒';
+}
+
+/** 构建状态卡片的 markdown 文本 */
+function buildStatusText(st: TaskStatusCard): string {
+  const icon = stageIcon(st.stage);
+  const lines: string[] = [];
+  lines.push(icon + ' **' + (st.title || 'AI 任务') + '**');
+  if (st.stage === 'running') lines.push('⏳ 正在处理…');
+  else if (st.stage === 'thinking') lines.push('🤔 AI 正在思考…');
+  else if (st.stage === 'tool') lines.push('🔧 正在执行：' + (st.detail || '工具'));
+  else if (st.stage === 'done') lines.push('🎉 任务已完成');
+  else if (st.stage === 'failed') lines.push('⚠️ 任务失败：' + (st.detail || '未知错误'));
+  if (typeof st.elapsedSec === 'number' && st.stage !== 'done' && st.stage !== 'failed') {
+    lines.push('⏱ 已运行 ' + fmtDuration(st.elapsedSec));
+  }
+  if (st.history && st.history.length) {
+    lines.push('');
+    lines.push('**执行记录**');
+    for (const h of st.history.slice(-8)) lines.push('· ' + h);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * 发送任务状态卡片，返回 message_id（用于后续原地更新）
+ * @param status 状态数据
+ * @param chatId 群 chat_id；空则回退单聊
+ */
+async function sendStatusCard(status: TaskStatusCard, chatId?: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const cfg = readConfig();
+  if (!apiClient) {
+    if (!cfg.appId || !cfg.appSecret) return { success: false, error: '未配置' };
+    apiClient = new lark.Client({ appId: cfg.appId, appSecret: cfg.appSecret });
+  }
+  const card: any = {
+    schema: '2.0',
+    // update_multi: true 是 im.message.patch 原地更新的**必要条件**（共享卡片）
+    config: { wide_screen_mode: true, update_multi: true },
+    body: { elements: [{ tag: 'markdown', content: buildStatusText(status) }] },
+  };
+  const receiveType = chatId ? 'chat_id' : 'open_id';
+  const receiveId = chatId || cfg.targetOpenId;
+  if (!receiveId) return { success: false, error: '该窗口尚未绑定飞书群' };
+  try {
+    const res = await apiClient.im.message.create({
+      params: { receive_id_type: receiveType },
+      data: { receive_id: receiveId, msg_type: 'interactive', content: JSON.stringify(card) },
+    });
+    if (res && (res.code === 0 || res.code === undefined)) {
+      const mid = (res.data && res.data.message_id) || '';
+      return { success: true, messageId: mid };
+    }
+    return { success: false, error: (res && res.msg) || '发送失败' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * 原地更新状态卡片（飞书 message.patch）
+ * 失败时调用方应降级为"新发一条"。
+ */
+async function updateStatusCard(messageId: string, status: TaskStatusCard): Promise<{ success: boolean; error?: string }> {
+  if (!apiClient || !messageId) return { success: false, error: '缺少 messageId 或未连接' };
+  const card: any = {
+    schema: '2.0',
+    config: { wide_screen_mode: true, update_multi: true },
+    body: { elements: [{ tag: 'markdown', content: buildStatusText(status) }] },
+  };
+  try {
+    // 飞书 SDK：im.message.patch（PATCH /im/v1/messages/:message_id）
+    const res = await apiClient.im.message.patch({
+      path: { message_id: messageId },
+      data: { content: JSON.stringify(card) },
+    });
+    if (res && (res.code === 0 || res.code === undefined)) return { success: true };
+    return { success: false, error: (res && res.msg) || '更新失败' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export { connect, disconnect, sendText, sendMarkdown, getStatus, readConfig, listChats, sendStatusCard, updateStatusCard };
 export type { FeishuStatus, FeishuChat };

@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { state } from './state.js';
 import { BT } from '../infra/markdown.js';
 import { getProviderByUrl } from '../providers/registry.js';
+import { showToolMask } from './panel.js';
 
 // electron 特殊：其 index.js 导出字符串，须用 createRequire（见 P3a 手册 1.5）
 const require = createRequire(import.meta.url);
@@ -163,6 +164,12 @@ async function sendToChat(msg: string, tag?: string, fixedDelay?: number, afterS
     console.log('[Cuckoo Code] 等待结束，开始触发发送');
     triggerSend(input);
     console.log('[Cuckoo Code] 已触发发送, ' + (tag || '') + ', 长度=' + msg.length);
+    // 真实用户消息 → 显示「AI 正在思考」状态（系统内部消息已有自己的遮罩控制）
+    try {
+      if (!isSystemTag(tag)) {
+        showToolMask(undefined, 'AI 正在思考，请不要有额外操作');
+      }
+    } catch (_) {}
     // 通知监听者（飞书同步等）；系统内部消息（工具结果/看门狗/重试等）不上报
     try {
       if (onUserMessageSentCb && !isSystemTag(tag)) onUserMessageSentCb(msg, tag);

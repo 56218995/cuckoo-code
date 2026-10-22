@@ -7,7 +7,7 @@ import { extractJsToolBlocks, BT } from '../parser/js-detector.js';
 import { looksLikeJsonToolCall } from '../parser/json-detector.js';
 import { handleJsToolScript } from '../loop/executor.js';
 import { sendCombinedJsResultsToChat, sendMessageToChat, cancelPendingSend, takePendingSendText, getLastToolResultText } from '../../overlay/chat-input.js';
-import { showToolMask, hideToolMask } from '../../overlay/panel.js';
+import { showToolMask, hideToolMask, setTaskRunning } from '../../overlay/panel.js';
 import * as watchdog from '../loop/watchdog.js';
 
 // 正文标记：AI 回复里输出 [记忆]xxx，软件据此自动创建
@@ -71,9 +71,21 @@ function sleep(ms: number): Promise<void> {
  * @param shouldCancel 取消判定；返回 true 时停止执行后续代码块（已进入执行的块不中断）
  * @returns 已执行块的结果（取消时为已完成的那些块）
  */
+/** 从 JS 代码块中提取首个被调用的工具名（用于状态展示） */
+function extractToolName(code: string): string {
+  if (!code) return '';
+  // 匹配 await xxx( 或 globalThis.xxx(，取第一个工具函数名
+  const m = code.match(/\b(?:await\s+)?(?:globalThis\.)?([a-zA-Z_$][\w$]*)\s*\(/);
+  if (!m) return '';
+  const name = m[1];
+  // 排除 JS 关键字/常见非工具调用
+  const skip = ['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'typeof', 'new', 'Promise', 'JSON', 'String', 'Number', 'Array', 'Object', 'Math', 'Date', 'console', 'setTimeout', 'parseInt', 'parseFloat', 'require'];
+  return skip.includes(name) ? '' : name;
+}
+
 async function executeJsBlocksWithRetry(blocks: string[], shouldCancel?: () => boolean): Promise<any[]> {
   // 工具开始（每个代码块一次）
-  for (const code of blocks) emitToolCall({ phase: 'start', code });
+  for (const code of blocks) emitToolCall({ phase: 'start', code, toolName: extractToolName(code) });
   let results: any[] = [];
   for (let attempt = 0; attempt <= MAX_JS_RETRY; attempt++) {
     results = [];
@@ -146,7 +158,14 @@ async function processInterceptedResponse(text: string, force?: boolean): Promis
       cancelPendingSend();
       hideToolMask();
     };
-    showToolMask(onCancel);
+    // 状态条：显示即将执行的工具名（若可解析）
+    {
+      const firstName = extractToolName(jsBlocks[0] || '');
+      const label = firstName
+        ? '正在执行：' + firstName + '，请不要有额外操作'
+        : '工具调用执行中，请不要有额外操作';
+      showToolMask(onCancel, label);
+    }
     let results: any[] = [];
     try {
       results = await executeJsBlocksWithRetry(jsBlocks, () => cancelled);
@@ -164,10 +183,13 @@ async function processInterceptedResponse(text: string, force?: boolean): Promis
       return;
     }
     // 等待发送阶段：遮罩保持「停止」按钮（onCancel 复用），点击可取消回传
-    showToolMask(onCancel);
+    showToolMask(onCancel, '正在回传工具结果…');
     if (abortRequested) { abortRequested = false; hideToolMask(); console.log('[Cuckoo Code][拦截] 已请求中止，不回传工具结果'); return; }
-    // afterSent 在"结果已发出"时触发隐藏；发送失败（找不到输入框等）则立即隐藏兜底
-    const sent = await sendCombinedJsResultsToChat(results, hideToolMask);
+    // afterSent 在"结果已发出"时触发：转入"等待 AI 思考"状态（不隐藏遮罩）
+    const sent = await sendCombinedJsResultsToChat(results, () => {
+      // 结果已发出 → AI 开始处理，状态条继续显示"思考中"
+      showToolMask(onCancel, 'AI 正在思考，请不要有额外操作');
+    });
     if (cancelled) return; // 用户已取消，不再处理
     if (!sent) hideToolMask();
     return;
@@ -209,6 +231,8 @@ async function processInterceptedResponse(text: string, force?: boolean): Promis
 
   // 4. 普通文本回复：任务完成，退出工具循环
   console.log('[Cuckoo Code][拦截] 正常文本回复，未检测到工具调用');
+  // 任务结束：隐藏状态条
+  hideToolMask();
   try {
     (window as any).electronAPI.showAiNotification().catch(() => {});
   } catch (e) { /* ignore */ }

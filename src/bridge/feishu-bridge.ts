@@ -10,7 +10,7 @@
  * 门控：主进程切换飞书启用状态时通知（enabled=false 时各回调立即返回，零开销）。
  */
 import { createRequire } from 'node:module';
-import { onInterceptedResponse, onToolCall } from './intercept/observer.js';
+import { onInterceptedResponse, onToolCall, onAiError } from './intercept/observer.js';
 import { sendToChat, onUserMessageSent } from '../overlay/chat-input.js';
 
 const require = createRequire(import.meta.url);
@@ -41,11 +41,13 @@ export function initFeishuBridge(): void {
   let enabled = false;
   ipcRenderer.on('feishu-mode', (_e: any, payload: any) => {
     enabled = !!(payload && payload.enabled);
+    console.log('[Feishu-bridge] 收到模式广播 enabled=' + enabled);
   });
   try {
     ipcRenderer.invoke('feishu-is-enabled').then((r: any) => {
       if (r) enabled = !!r.enabled;
-    }).catch(() => {});
+      console.log('[Feishu-bridge] 主动查询 enabled=' + enabled + ' raw=' + JSON.stringify(r));
+    }).catch((e: any) => console.log('[Feishu-bridge] 查询失败: ' + (e && e.message)));
   } catch (_) {}
 
   // 本轮任务是否调用过工具（用户发新消息时重置）
@@ -53,6 +55,7 @@ export function initFeishuBridge(): void {
 
   // 1. 用户消息（经 Cuckoo 发送）→ 上报（并重置本轮工具标记）
   onUserMessageSent((text: string, tag?: string) => {
+    console.log('[Feishu-bridge] 用户消息事件 enabled=' + enabled + ' tag=' + (tag || '(空)') + ' len=' + (text ? text.length : 0));
     if (!enabled || !text) return;
     usedToolThisTurn = false;
     report({ type: 'user-message', text: text, tag: tag || '' });
@@ -60,6 +63,7 @@ export function initFeishuBridge(): void {
 
   // 2. AI 回复完成 → 上报（剥离工具代码块，飞书只看对话）
   onInterceptedResponse((text: string) => {
+    console.log('[Feishu-bridge] AI回复事件 enabled=' + enabled + ' len=' + (text ? text.length : 0));
     if (!enabled || !text) return;
     let clean = stripToolBlocks(text);
     if (!clean) return;
@@ -68,12 +72,19 @@ export function initFeishuBridge(): void {
     report({ type: 'ai-reply', text: clean });
   });
 
-  // 3. 工具调用状态 → 上报（仅状态；工具名是否带上由主进程按配置决定）
+  // 3. 工具调用状态 → 上报（带上工具名，供状态卡片展示）
   onToolCall((ev: any) => {
     if (!enabled || !ev) return;
     usedToolThisTurn = true;
-    if (ev.phase === 'start') report({ type: 'tool-start' });
-    else if (ev.phase === 'end') report({ type: 'tool-end' });
+    if (ev.phase === 'start') report({ type: 'tool-start', toolName: ev.toolName || '' });
+    else if (ev.phase === 'end') report({ type: 'tool-end', toolName: ev.toolName || '' });
+  });
+
+  // 4. AI 请求失败 → 上报（供状态卡片标记失败）
+  onAiError((detail: any) => {
+    if (!enabled) return;
+    const err = (detail && (detail.reason || detail.text || detail.name)) || 'AI 请求失败';
+    report({ type: 'task-error', error: String(err).slice(0, 200) });
   });
 
   // 4. 飞书来消息 → 主进程转发到此 → 发给 AI
