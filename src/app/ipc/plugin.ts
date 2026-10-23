@@ -207,8 +207,52 @@ function applyAiPageBgCss(wc: any): void {
   // 有背景：让最外层容器透明，保留卡片/输入框实体背景
   const css = [
     'html, body { background-color: transparent !important; background-image: none !important; }',
-    '#root, #__next, #app, #app-root, .app, .chat-container, .main-container { background-color: transparent !important; background-image: none !important; }',
-    '.ds-layout, [class*="layout-container"], [class*="page-container"] { background-color: transparent !important; }',
+    '#root, #__next, #app, #app-root { background-color: transparent !important; background-image: none !important; }',
+    // DeepSeek 的主布局容器（class 有 hash，用属性前缀匹配）
+    'body > div, body > div > div { background-color: transparent !important; background-image: none !important; }',
+    '[class*="layout"], [class*="container"], [class*="main"], [class*="page"] { background-color: transparent !important; }',
+    // 侧边栏背景透明（保留文字）
+    'aside, nav, [class*="sidebar"], [class*="side-bar"] { background-color: transparent !important; }',
+    // DeepSeek 侧边栏容器（固定 261px 宽）
+    'div[class*="a2f3d50e"], div[class*="b8812f16"] { background-color: transparent !important; }',
+    // 顶部/底部固定栏透明
+    '[class*="header"], [class*="footer"], [class*="topbar"], [class*="bottombar"] { background-color: transparent !important; }',
+    // 保留输入框/按钮/卡片/弹窗的实体背景
+    'textarea, input, button, [class*="input"], [class*="button"], [class*="card"], [class*="dialog"], [class*="modal"] { background-color: revert !important; }',
+    // 深色背景上的大字标题（欢迎语）加浅色 + 阴影增强可读性
+    '[class*="welcome"], [class*="greeting"], [class*="empty-state"] { color: #e4e6eb !important; text-shadow: 0 1px 3px rgba(0,0,0,0.8) !important; }',
+    '[class*="welcome"] *, [class*="greeting"] *, [class*="empty-state"] * { color: #e4e6eb !important; text-shadow: 0 1px 3px rgba(0,0,0,0.8) !important; }',
+    // 侧边栏分组小标题（今天/昨天/7天内）透明
+    '.f3d18f6a { background-color: transparent !important; color: #a8adba !important; }',
+    // 侧边栏对话列表项文字改浅色（深色背景上可读）
+    '.c08e6e93 { color: #d8dbe2 !important; }',
+    '.c08e6e93:hover { color: #ffffff !important; }',
+    // 侧边栏容器内所有文字保底浅色
+    'div[class*="a2f3d50e"] div, div[class*="b8812f16"] div, div[class*="a2f3d50e"] span, div[class*="b8812f16"] span { color: #d8dbe2; }',
+    // 但按钮/输入框恢复深色文字（它们有白底）
+    'button, textarea, input { color: #0f1115 !important; }',
+    'button *, textarea *, input * { color: #0f1115 !important; }',
+    // 开启新对话按钮（白底 + 深字）
+    '._5a8ac7a { color: #0f1115 !important; }',
+    '._5a8ac7a * { color: #0f1115 !important; }',
+    // 底部渐隐遮罩（linear-gradient 白底）改为透明
+    '._1d72f01 { background-image: none !important; background: transparent !important; }',
+    // 底部按钮悬停底色半透明
+    '.ede5bc47 { background-color: rgba(255,255,255,0.08) !important; }',
+    // 大字号标题/欢迎语在深色背景上改浅色（>18px 的文字）
+    'body :is(h1,h2,h3,h4) { color: #e8eaed !important; text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important; }',
+    // 主内容区的欢迎语（中间的大标题）
+    'main span, ._7780f2e span, ._765a5cd span { color: #e8eaed !important; text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important; }',
+    // 滚动条透明化
+    '.ds-scroll-area__vertical-bar, .ds-scroll-area__horizontal-bar, [class*="scrollbar"] { background-color: rgba(255,255,255,0.15) !important; }',
+    // 侧边栏对话项：悬停/选中背景改为半透明白（跟随主题），文字保持浅色
+    '.c08e6e93 { color: #d8dbe2 !important; }',
+    '.c08e6e93:hover { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
+    '.c08e6e93:focus, .c08e6e93:focus-visible { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
+    // 选中项（active/current）用主题色半透明
+    '[class*="active"].c08e6e93, [class*="selected"].c08e6e93, .c08e6e93[data-active="true"] { background-color: rgba(77,107,254,0.2) !important; color: #e8eaed !important; }',
+    // DeepSeek 侧边栏内部所有 hover 背景统一半透明
+    'div[class*="a2f3d50e"] [class*="item"]:hover, div[class*="b8812f16"] [class*="item"]:hover { background-color: rgba(255,255,255,0.08) !important; }',
   ].join(' ');
   const js = '(function(){' +
     'var old=document.getElementById("__ck_ai_bg");if(old)old.remove();' +
