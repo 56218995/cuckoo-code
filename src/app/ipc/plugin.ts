@@ -247,11 +247,11 @@ function applyAiPageBgCss(wc: any): void {
     '.ds-scroll-area__vertical-bar, .ds-scroll-area__horizontal-bar, [class*="scrollbar"] { background-color: rgba(255,255,255,0.15) !important; }',
     // 侧边栏对话项：悬停/选中背景改为半透明白（跟随主题），文字保持浅色
     '.c08e6e93 { color: #d8dbe2 !important; }',
-    '.c08e6e93:hover { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
+    '.c08e6e93:hover { background-color: rgba(255,255,255,0.08) !important; background-image: none !important; color: #ffffff !important; }',
     '.c08e6e93:focus, .c08e6e93:focus-visible { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
     // 父级 <a> 链接容器：默认透明，悬停时半透明
     'a._546d736 { background-color: transparent !important; color: #d8dbe2 !important; }',
-    'a._546d736:hover, a._546d736:focus { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
+    'a._546d736:hover, a._546d736:focus { background-color: rgba(255,255,255,0.08) !important; background-image: none !important; color: #ffffff !important; }',
     'a._546d736:hover *, a._546d736:focus * { color: #ffffff !important; }',
     // 侧边栏所有 a 标签兜底
     'div[class*="a2f3d50e"] a, div[class*="b8812f16"] a { background-color: transparent !important; color: #d8dbe2 !important; }',
