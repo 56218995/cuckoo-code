@@ -120,13 +120,14 @@ function registerThemeIpc(): void {
       const r = themeManager.activateUserTheme(id);
       if (!r.success) return r;
       // 自动同步背景到壳页面 + Harness（不写文件，主题的 background 存在 user-theme.json 里）
+      // 注意：必须用 require 而非 import()——CJS 下 import() 是 ESM 动态导入，与 require 不共享模块缓存，
+      // 会导致 plugin.js 被加载两份，shellBackground 变量不同步（背景推 null 的 bug）。
       try {
         const bg = r.background || null;
-        import('./plugin.js').then((m: any) => {
-          if (typeof m.applyShellBackground === 'function') {
-            m.applyShellBackground(bg ? { url: bg.url, overlay: bg.overlay } : null, false);
-          }
-        }).catch(() => {});
+        const m: any = require('./plugin.js');
+        if (m && typeof m.applyShellBackground === 'function') {
+          m.applyShellBackground(bg ? { url: bg.url, overlay: bg.overlay } : null, false);
+        }
       } catch (_) { /* ignore */ }
       return { success: true, snapshot: themeManager.snapshot(), background: r.background || null };
     } catch (err: any) {
