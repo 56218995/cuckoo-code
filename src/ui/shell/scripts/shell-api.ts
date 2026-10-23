@@ -22,6 +22,10 @@ export interface ShellAPI {
   onWebUrlChanged?: (cb: () => void) => void;
   /** harness 生成中（busy=true → 禁用对话切换） */
   onHarnessBusy?: (cb: (busy: boolean) => void) => void;
+  setShellBackground?: (pluginId: string, url: string | null, overlay?: string) => Promise<any>;
+  getShellBackground?: () => Promise<any>;
+  pickBackgroundImage?: () => Promise<any>;
+  onShellBackground?: (cb: (data: any) => void) => void;
   // 插件市场 / 安装
   pluginMarketList?: (opts?: any) => Promise<any>;
   pluginMarketRemote?: (targets: any) => Promise<any>;
@@ -76,6 +80,11 @@ export interface ShellAPI {
   themeSubscribe?: () => Promise<any>;
   onThemeChanged?: (cb: (snapshot: any) => void) => void;
   themeUserGet?: () => Promise<any>;
+  themeUserList?: () => Promise<any>;
+  themeUserCreate?: (name: string, tokens: any, background?: any) => Promise<any>;
+  themeUserUpdate?: (id: string, patch: any) => Promise<any>;
+  themeUserDelete?: (id: string) => Promise<any>;
+  themeUserActivate?: (id: string) => Promise<any>;
   themeUserSet?: (tokens: any) => Promise<any>;
   themeUserReset?: () => Promise<any>;
   themeOverride?: (source: string, tokens: any) => Promise<any>;

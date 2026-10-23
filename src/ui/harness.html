@@ -82,12 +82,12 @@
   .topbar {
     display: flex; align-items: center; gap: 10px;
     height: 40px; padding: 0 16px;
-    background: var(--bg); border-bottom: 1px solid var(--border-soft);
+    background: transparent; border-bottom: 1px solid var(--border-soft);
     flex-shrink: 0; user-select: none; -webkit-app-region: drag;
   }
   .brand { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-2); letter-spacing: .2px; }
   .brand svg { width: 15px; height: 15px; color: var(--accent); }
-  .brand-hint { font-size: 10.5px; font-weight: 400; color: var(--amber, #d9a05b); opacity: .85; letter-spacing: 0; }
+  .brand-hint { font-size: 10.5px; font-weight: 400; color: var(--text-2); opacity: .65; letter-spacing: 0; }
   .topbar .spacer { flex: 1; }
   .status { font-size: 11.5px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
   .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
@@ -410,7 +410,7 @@
   .goalbar {
     display: none; align-items: center; gap: 10px;
     padding: 7px 16px; flex-shrink: 0;
-    background: var(--bg-elev); border-bottom: 1px solid var(--border-soft);
+    background: transparent; border-bottom: 1px solid var(--border-soft);
   }
   .goalbar.show { display: flex; }
   .goalbar .g-icon { width: 15px; height: 15px; color: var(--accent); flex-shrink: 0; display: flex; }
@@ -451,7 +451,7 @@
   .goalbar .g-btn.danger:hover { color: var(--red); border-color: var(--red); }
 
   /* ===== Plan 计划面板 ===== */
-  .plan-panel { display: none; flex-shrink: 0; background: var(--bg-elev); border-bottom: 1px solid var(--border-soft); }
+  .plan-panel { display: none; flex-shrink: 0; background: transparent; border-bottom: 1px solid var(--border-soft); }
   .plan-panel.show { display: block; }
   /* 计划模式状态灯 / 轮数 / 控制（与目标条同构：harness 层显式状态，而非软提示） */
   .plan-head .p-state { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-dim); flex-shrink: 0; }

@@ -75,7 +75,7 @@
   .toolbar {
     display: flex; align-items: center; gap: 2px;
     height: 46px; padding: 0 12px;
-    background: var(--ck-bg);
+    background: transparent;
     border-bottom: 1px solid var(--ck-border);
     flex-shrink: 0;
   }
@@ -158,7 +158,7 @@
     display: flex;
     align-items: center; justify-content: flex-end; gap: 12px;
     height: 28px; padding: 0 16px;
-    background: var(--ck-bg-sub);
+    background: transparent;
     border-top: 1px solid var(--ck-border);
     flex-shrink: 0;
     font-size: 11.5px; color: var(--ck-text-2);
@@ -193,12 +193,13 @@
   .viewport { flex: 1; min-width: 0; }
 
   /* ===== 侧边栏 ===== */
-  .ck-sidebar { width: 320px; flex-shrink: 0; display: flex; position: relative; background: var(--ck-bg); border-right: 1px solid var(--ck-border); }
+  .ck-sidebar { width: 320px; flex-shrink: 0; display: flex; position: relative; background: transparent; border-right: 1px solid var(--ck-border); }
   .ck-activitybar {
     width: 48px; flex-shrink: 0;
     display: flex; flex-direction: column; align-items: center;
     padding: 12px 0; gap: 2px;
-    background: var(--ck-bg-sub);
+    background: transparent;
+    border-right: 1px solid var(--ck-border);
   }
   .ck-ab-item {
     width: 36px; height: 36px; border: none; border-radius: 8px;
@@ -1976,6 +1977,12 @@
     "src/ui/shell/scripts/shared.ts"() {
       "use strict";
       api = window.shellAPI || {};
+      try {
+        window.ckPrompt = ckPrompt;
+        window.ckConfirm = ckConfirm;
+        window.ckAlert = ckAlert;
+      } catch (_) {
+      }
     }
   });
 
@@ -5361,6 +5368,39 @@
     }
   }
 
+  // src/ui/shell/scripts/background.ts
+  init_shared();
+  function applyBackground(data) {
+    const body = document.body;
+    if (!data || !data.url) {
+      body.style.backgroundImage = "";
+      body.style.backgroundSize = "";
+      body.style.backgroundPosition = "";
+      body.style.backgroundRepeat = "";
+      body.style.backgroundAttachment = "";
+      return;
+    }
+    const overlay = data.overlay || "rgba(10,12,20,0.5)";
+    body.style.backgroundImage = "linear-gradient(" + overlay + "," + overlay + '), url("' + String(data.url).replace(/"/g, '\\"') + '")';
+    body.style.backgroundSize = "100% 100%, cover";
+    body.style.backgroundPosition = "0 0, center center";
+    body.style.backgroundRepeat = "no-repeat, no-repeat";
+    body.style.backgroundAttachment = "scroll, scroll";
+    body.style.backgroundOrigin = "border-box, border-box";
+  }
+  function initBackground() {
+    if (!api) return;
+    if (api.onShellBackground) {
+      api.onShellBackground((data) => applyBackground(data));
+    }
+    if (api.getShellBackground) {
+      api.getShellBackground().then((r) => {
+        if (r && r.success && r.background) applyBackground(r.background);
+      }).catch(() => {
+      });
+    }
+  }
+
   // src/ui/shell/scripts/pages/memories.ts
   init_shared();
   var memories = [];
@@ -5502,6 +5542,10 @@
   }
   try {
     initThemePresenter();
+  } catch (_) {
+  }
+  try {
+    initBackground();
   } catch (_) {
   }
   function reportShellSize() {

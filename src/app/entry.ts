@@ -279,6 +279,12 @@ function createWindow(profile: any) {
     hv.webContents.on('did-finish-load', () => {
       console.log('[Cuckoo Harness] 页面加载完成');
       try { notifyHarnessSession(view.webContents.getURL()); } catch (_) {}
+      // 推送当前主题快照（Harness 是独立视图，需要主动注入 --ck-* 变量）
+      try {
+        import('./theme/theme-manager.js').then((m: any) => {
+          try { hv.webContents.send('theme-changed', m.snapshot()); } catch (_) {}
+        }).catch(() => {});
+      } catch (_) {}
     });
     hv.webContents.on('did-fail-load', (_e: any, code: any, desc: any) => {
       console.error('[Cuckoo Harness] 页面加载失败: ' + code + ' ' + desc);
@@ -344,7 +350,29 @@ function createWindow(profile: any) {
   };
   (mainWindow as any).__ckLayout = layoutView;
   layoutView();
-  mainWindow.on('resize', layoutView);
+  mainWindow.on('resize', () => {
+    layoutView();
+    // 背景图依赖窗口尺寸（Harness 用固定像素），缩放后需重新推送
+    try {
+      const bgPath = require('node:path').join(require('electron').app.getPath('userData'), 'plugin-shell-background.json');
+      const fsMod = require('node:fs');
+      if (fsMod.existsSync(bgPath)) {
+        const raw = JSON.parse(fsMod.readFileSync(bgPath, 'utf8'));
+        if (raw && raw.url) {
+          const sz = mainWindow.getContentSize ? mainWindow.getContentSize() : [1280, 900];
+          try { mainWindow.webContents.send('shell-background', { url: raw.url, overlay: raw.overlay || 'rgba(10,12,20,0.5)', winW: sz[0], winH: sz[1] }); } catch (_) {}
+          try {
+            const ctx: any = windowState.getWindowContext(mainWindow.id);
+            const hv = ctx && ctx.harnessView;
+            if (hv && !hv.webContents.isDestroyed()) {
+              const vb = hv.getBounds ? hv.getBounds() : { x: 0, y: 0 };
+              hv.webContents.send('harness-background', { url: raw.url, overlay: raw.overlay || 'rgba(10,12,20,0.5)', offsetX: vb.x, offsetY: vb.y, winW: sz[0], winH: sz[1] });
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) { /* ignore */ }
+  });
   mainWindow.on('move', layoutView);
 
   // 覆盖层：把"确保创建"挂到 windowState 的 ctx（供 IPC 调用；IPC 通过 getAllContexts 拿）
@@ -366,6 +394,27 @@ function createWindow(profile: any) {
     pushUrlState(view);
     // 平台未选择：通知壳页面隐藏侧边栏 + 项目选择器
     try { mainWindow.webContents.send('shell-platform-mode', { selecting: !providerChosen }); } catch (_) {}
+    // 主动推一次背景：优先用当前激活主题的 background（权威），否则读 plugin-shell-background.json
+    try {
+      import('./theme/theme-manager.js').then((tm: any) => {
+        let bg = null;
+        try { bg = tm.getActiveBackground(); } catch (_) {}
+        if (!bg) {
+          try {
+            const bgPath = require('node:path').join(require('electron').app.getPath('userData'), 'plugin-shell-background.json');
+            const fsMod = require('node:fs');
+            if (fsMod.existsSync(bgPath)) {
+              const raw = JSON.parse(fsMod.readFileSync(bgPath, 'utf8'));
+              if (raw && raw.url) bg = { url: raw.url, overlay: raw.overlay || 'rgba(10,12,20,0.5)' };
+            }
+          } catch (_) {}
+        }
+        if (bg && bg.url) {
+          const sz = mainWindow.getContentSize ? mainWindow.getContentSize() : [1280, 900];
+          mainWindow.webContents.send('shell-background', { url: bg.url, overlay: bg.overlay || 'rgba(10,12,20,0.5)', winW: sz[0], winH: sz[1] });
+        }
+      }).catch(() => {});
+    } catch (_) { /* ignore */ }
   });
 
   // 保存 session 引用（窗口销毁后 webContents 不可访问）

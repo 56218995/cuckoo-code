@@ -78,6 +78,62 @@ function registerThemeIpc(): void {
     }
   });
 
+  // ===== 多主题 CRUD =====
+  ipcMain.handle('theme-user-list', () => {
+    return { success: true, data: themeManager.listUserThemes() };
+  });
+
+  ipcMain.handle('theme-user-create', (_e: any, { name, tokens, background }: any = {}) => {
+    try {
+      const r = themeManager.createUserTheme(name, tokens || {}, background);
+      if (r.error) return { success: false, error: r.error };
+      return { success: true, id: r.id, snapshot: themeManager.snapshot() };
+    } catch (err: any) {
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('theme-user-update', (_e: any, { id, name, tokens, background }: any = {}) => {
+    try {
+      const patch: any = { name, tokens };
+      if (background !== undefined) patch.background = background;
+      const r = themeManager.updateUserTheme(id, patch);
+      if (!r.success) return r;
+      return { success: true, snapshot: themeManager.snapshot() };
+    } catch (err: any) {
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('theme-user-delete', (_e: any, { id }: any = {}) => {
+    try {
+      const r = themeManager.deleteUserTheme(id);
+      if (!r.success) return r;
+      return { success: true, snapshot: themeManager.snapshot() };
+    } catch (err: any) {
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('theme-user-activate', (_e: any, { id }: any = {}) => {
+    try {
+      const r = themeManager.activateUserTheme(id);
+      if (!r.success) return r;
+      // 自动同步背景到壳页面 + Harness（不写文件，主题的 background 存在 user-theme.json 里）
+      try {
+        const bg = r.background || null;
+        import('./plugin.js').then((m: any) => {
+          if (typeof m.applyShellBackground === 'function') {
+            m.applyShellBackground(bg ? { url: bg.url, overlay: bg.overlay } : null, false);
+          }
+        }).catch(() => {});
+      } catch (_) { /* ignore */ }
+      return { success: true, snapshot: themeManager.snapshot(), background: r.background || null };
+    } catch (err: any) {
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('theme-subscribe', (event: any) => {
     const wc = event && event.sender;
     if (!wc) return { success: false, error: 'no sender' };

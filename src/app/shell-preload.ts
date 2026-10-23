@@ -78,6 +78,8 @@ const shellAPI = {
     ipcRenderer.on('shell-background', (_e: any, data: any) => cb(data));
   },
   getShellBackground: () => ipcRenderer.invoke('plugin-shell-background-list'),
+  setShellBackground: (pluginId: string, url: string | null, overlay?: string) => ipcRenderer.invoke('plugin-shell-background', { pluginId, url, overlay }),
+  pickBackgroundImage: () => ipcRenderer.invoke('plugin-pick-background-image'),
   // 命令（插件命令，工具栏按钮等触发）
   commandInvoke: (commandId: string) => ipcRenderer.invoke('plugin-command-invoke', { commandId }),
   commandList: () => ipcRenderer.invoke('plugin-command-list'),
@@ -149,6 +151,12 @@ const shellAPI = {
   themeUserGet: () => ipcRenderer.invoke('theme-user-get'),
   themeUserSet: (tokens: any) => ipcRenderer.invoke('theme-user-set', { tokens }),
   themeUserReset: () => ipcRenderer.invoke('theme-user-reset'),
+  // 多主题 CRUD
+  themeUserList: () => ipcRenderer.invoke('theme-user-list'),
+  themeUserCreate: (name: string, tokens: any, background?: any) => ipcRenderer.invoke('theme-user-create', { name, tokens, background }),
+  themeUserUpdate: (id: string, patch: any) => ipcRenderer.invoke('theme-user-update', Object.assign({ id }, patch)),
+  themeUserDelete: (id: string) => ipcRenderer.invoke('theme-user-delete', { id }),
+  themeUserActivate: (id: string) => ipcRenderer.invoke('theme-user-activate', { id }),
   themeOverride: (source: string, tokens: any) => ipcRenderer.invoke('theme-override', { source, tokens }),
   // ========== 技能 ==========
   listSkills: () => ipcRenderer.invoke('list-skills'),

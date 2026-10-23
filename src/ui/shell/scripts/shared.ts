@@ -109,3 +109,10 @@ export function formatShort(n: number): string {
   if (n >= 10000) return (n / 10000).toFixed(1) + '万';
   return String(Math.round(n));
 }
+
+// 暴露到 window（供插件脚本使用；Electron 禁用了原生 prompt/confirm）
+try {
+  (window as any).ckPrompt = ckPrompt;
+  (window as any).ckConfirm = ckConfirm;
+  (window as any).ckAlert = ckAlert;
+} catch (_) { /* ignore */ }

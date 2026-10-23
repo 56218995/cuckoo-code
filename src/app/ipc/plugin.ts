@@ -118,6 +118,70 @@ function buildInstalledMap(): Record<string, { id: string; name: string; version
   return out;
 }
 
+// ===== 插件背景图（模块级，可被其他 IPC 复用）=====
+// ===== 插件背景图（基座负责对齐壳页面 + harness）=====
+// 持久化到 userData/plugin-shell-background.json（重启后自动恢复）
+function getBgFile(): string | null {
+  try {
+    const { app } = require('electron');
+    const f = path.join(app.getPath('userData'), 'plugin-shell-background.json');
+    console.log('[bg] getBgFile =', f, '| userData =', app.getPath('userData'));
+    return f;
+  } catch (e) { console.error('[bg] getBgFile 失败:', e); return null; }
+}
+function readBgFile(): { pluginId: string; url: string; overlay: string } | null {
+  const f = getBgFile();
+  if (!f) return null;
+  try {
+    if (!fs.existsSync(f)) return null;
+    const raw = JSON.parse(fs.readFileSync(f, 'utf8'));
+    if (raw && typeof raw.url === 'string' && raw.url) return { pluginId: String(raw.pluginId || ''), url: raw.url, overlay: String(raw.overlay || 'rgba(10,12,20,0.5)') };
+  } catch (e) { console.error('[bg] readBgFile 失败:', e); }
+  return null;
+}
+function writeBgFile(v: { pluginId: string; url: string; overlay: string } | null): void {
+  const f = getBgFile();
+  if (!f) { console.error('[bg] writeBgFile: 路径为空'); return; }
+  try {
+    if (!v) { if (fs.existsSync(f)) fs.unlinkSync(f); console.log('[bg] 已删除', f); return; }
+    fs.writeFileSync(f, JSON.stringify(v, null, 2), 'utf8');
+    console.log('[bg] 已写入', f, '| 存在:', fs.existsSync(f));
+  } catch (e) { console.error('[bg] writeBgFile 失败:', e); }
+}
+let shellBackground: { pluginId: string; url: string; overlay: string } | null = readBgFile();
+const pushBackground = (): void => {
+  const mainWin: any = windowState.getMainWindow ? windowState.getMainWindow() : null;
+  const ctx = windowState.getMainContext ? windowState.getMainContext() : null;
+  // 偏移用 harness view 的实际 bounds（它的位置才是对齐基准）
+  let sbw = 0, tbh = 0, winW = 0, winH = 0;
+  try {
+    const c0 = windowState.getMainContext ? windowState.getMainContext() : null;
+    const hv0 = c0 && (c0 as any).harnessView;
+    if (hv0 && !hv0.webContents.isDestroyed() && hv0.getBounds) { const b = hv0.getBounds(); sbw = b.x; tbh = b.y; }
+  } catch (_) {}
+  if (!sbw && (mainWin as any).__ckSidebarWidth != null) sbw = (mainWin as any).__ckSidebarWidth;
+  if (!tbh && (mainWin as any).__ckToolbarHeight != null) tbh = (mainWin as any).__ckToolbarHeight;
+  try { const sz = mainWin.getContentSize(); winW = sz[0]; winH = sz[1]; } catch (_) {}
+  if (mainWin && mainWin.webContents) {
+    mainWin.webContents.send('shell-background', shellBackground ? { url: shellBackground.url, overlay: shellBackground.overlay, winW, winH } : null);
+  }
+  try {
+    for (const c of windowState.getAllContexts()) {
+      const hv = (c as any).harnessView;
+      if (hv && hv.webContents && !hv.webContents.isDestroyed()) {
+        hv.webContents.send('harness-background', shellBackground ? { url: shellBackground.url, overlay: shellBackground.overlay, offsetX: sbw, offsetY: tbh, winW, winH } : null);
+      }
+    }
+  } catch (_) {}
+};
+
+/** 供其他模块调用：设置背景并推送（不写文件时传 persist=false） */
+function applyShellBackground(bg: { url: string; overlay: string } | null, persist = true): void {
+  shellBackground = bg ? { pluginId: shellBackground?.pluginId || "external", url: bg.url, overlay: bg.overlay } : null;
+  if (persist) { try { writeBgFile(shellBackground); } catch (_) { /* ignore */ } }
+  pushBackground();
+}
+
 function registerPluginIpc(): void {
   // ===== 网页注入脚本：已启用插件的 scripts/*.js（供 bridge 注入 AI 页面主世界） =====
   ipcMain.handle('get-plugin-web-scripts', async () => {
@@ -732,41 +796,35 @@ function registerPluginIpc(): void {
     } catch (err: any) { return { success: false, error: err && err.message ? err.message : String(err) }; }
   });
 
-  // ===== 插件背景图（基座负责对齐壳页面 + harness）=====
-  let shellBackground: { pluginId: string; url: string; overlay: string } | null = null;
-  const pushBackground = (): void => {
-    const mainWin: any = windowState.getMainWindow ? windowState.getMainWindow() : null;
-    const ctx = windowState.getMainContext ? windowState.getMainContext() : null;
-    // 偏移用 harness view 的实际 bounds（它的位置才是对齐基准）
-    let sbw = 0, tbh = 0, winW = 0, winH = 0;
-    try {
-      const c0 = windowState.getMainContext ? windowState.getMainContext() : null;
-      const hv0 = c0 && (c0 as any).harnessView;
-      if (hv0 && !hv0.webContents.isDestroyed() && hv0.getBounds) { const b = hv0.getBounds(); sbw = b.x; tbh = b.y; }
-    } catch (_) {}
-    if (!sbw && (mainWin as any).__ckSidebarWidth != null) sbw = (mainWin as any).__ckSidebarWidth;
-    if (!tbh && (mainWin as any).__ckToolbarHeight != null) tbh = (mainWin as any).__ckToolbarHeight;
-    try { const sz = mainWin.getContentSize(); winW = sz[0]; winH = sz[1]; } catch (_) {}
-    if (mainWin && mainWin.webContents) {
-      mainWin.webContents.send('shell-background', shellBackground ? { url: shellBackground.url, overlay: shellBackground.overlay, winW, winH } : null);
-    }
-    try {
-      for (const c of windowState.getAllContexts()) {
-        const hv = (c as any).harnessView;
-        if (hv && hv.webContents && !hv.webContents.isDestroyed()) {
-          hv.webContents.send('harness-background', shellBackground ? { url: shellBackground.url, overlay: shellBackground.overlay, offsetX: sbw, offsetY: tbh, winW, winH } : null);
-        }
-      }
-    } catch (_) {}
-  };
+  // 插件背景图：见模块级 pushShellBackground / applyShellBackground
   ipcMain.handle('plugin-shell-background', async (_event: any, { pluginId, url, overlay }: any = {}) => {
     try {
       if (url === null || url === undefined) { shellBackground = null; }
       else shellBackground = { pluginId: String(pluginId || ''), url: String(url), overlay: String(overlay || 'rgba(10,12,20,0.5)') };
+      writeBgFile(shellBackground);
       pushBackground();
       return { success: true };
     } catch (err: any) { return { success: false, error: err && err.message ? err.message : String(err) }; }
   });
+  // 选择本地图片作为背景（返回 file:// URL）
+  ipcMain.handle('plugin-pick-background-image', async () => {
+    try {
+      const win: any = windowState.getMainWindow ? windowState.getMainWindow() : null;
+      const opts = {
+        title: '选择背景图片',
+        properties: ['openFile'],
+        filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] }],
+      };
+      const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      if (res.canceled || !res.filePaths || !res.filePaths.length) return { success: false, canceled: true };
+      const p = res.filePaths[0];
+      const { pathToFileURL } = await import('node:url');
+      return { success: true, url: pathToFileURL(p).toString(), path: p };
+    } catch (err: any) {
+      return { success: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('plugin-shell-background-list', async () => {
     const mainWin: any = windowState.getMainWindow ? windowState.getMainWindow() : null;
     const ctx = windowState.getMainContext ? windowState.getMainContext() : null;
@@ -774,7 +832,19 @@ function registerPluginIpc(): void {
     try { const v = ctx && ctx.view; if (v && v.getBounds) { const b = v.getBounds(); sbw = b.x; tbh = b.y; } } catch (_) {}
     let winW = 0, winH = 0;
     try { const sz = mainWin.getContentSize(); winW = sz[0]; winH = sz[1]; } catch (_) {}
-    return { success: true, background: shellBackground, offsetX: sbw, offsetY: tbh, winW, winH };
+    // 优先返回当前激活主题的 background（权威），否则用全局 shellBackground
+    let bg = shellBackground;
+    try {
+      const tm = await import('../theme/theme-manager.js');
+      const activeBg = (tm as any).getActiveBackground ? (tm as any).getActiveBackground() : null;
+      if (activeBg && activeBg.url) {
+        bg = { pluginId: 'cuckoo-theme', url: activeBg.url, overlay: activeBg.overlay || 'rgba(10,12,20,0.5)' };
+      } else {
+        // 主题没有 background → 返回 null（避免显示旧背景）
+        bg = null;
+      }
+    } catch (_) { /* ignore */ }
+    return { success: true, background: bg, offsetX: sbw, offsetY: tbh, winW, winH };
   });
 
   // ===== 插件控制 AI 视图（DS 页面）显隐（纯 Electron 层，不碰页面）=====
@@ -896,4 +966,4 @@ function registerPluginIpc(): void {
   });
 }
 
-export { registerPluginIpc };
+export { registerPluginIpc, applyShellBackground };
