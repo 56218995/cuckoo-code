@@ -249,22 +249,7 @@ export function initPluginShell(): void {
         try { if (m && m.pluginId) removeShellStyle(m.pluginId); } catch (_) {}
       });
     }
-    // 插件背景图（基座负责对齐）
-    const applyBg = (data: any) => {
-      let tag = document.getElementById('ck-plugin-bg') as any;
-      if (!data || !data.url) { if (tag) tag.remove(); return; }
-      if (!tag) { tag = document.createElement('style'); tag.id = 'ck-plugin-bg'; document.head.appendChild(tag); }
-      const overlay = data.overlay || 'rgba(10,12,20,0.5)';
-      const w = data.winW || window.innerWidth, h = data.winH || window.innerHeight;
-      tag.textContent = 'body { background: linear-gradient(' + overlay + ',' + overlay + '), url(' + data.url + ') no-repeat fixed !important;' +
-        'background-size: auto, ' + w + 'px ' + h + 'px !important;' +
-        'background-position: 0 0, 0 0 !important; }' +
-        '.shell { background: transparent !important; }';
-    };
-    if (apiAny && typeof apiAny.onShellBackground === 'function') apiAny.onShellBackground(applyBg);
-    if (apiAny && typeof apiAny.getShellBackground === 'function') {
-      apiAny.getShellBackground().then((r: any) => { if (r && r.success) applyBg(r.background); }).catch(() => {});
-    }
+    // 背景图由 background.ts 统一处理（避免两套实现冲突：url 含空格时解析失败）
     if (apiAny && typeof apiAny.listPluginShellStyles === 'function') {
       apiAny.listPluginShellStyles().then((r: any) => {
         if (!r || !r.success || !Array.isArray(r.styles)) return;

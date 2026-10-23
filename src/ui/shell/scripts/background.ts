@@ -9,6 +9,9 @@ import { api } from './shared.js';
 /** 应用背景（多重背景叠加：遮罩 + 图） */
 function applyBackground(data: any): void {
   const body = document.body;
+  // 清理旧实现残留的 style 标签（plugin-shell.ts 曾注入，url 无引号含空格会失败）
+  const legacy = document.getElementById('ck-plugin-bg');
+  if (legacy) legacy.remove();
   if (!data || !data.url) {
     body.style.backgroundImage = '';
     body.style.backgroundSize = '';
