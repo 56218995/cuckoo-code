@@ -184,6 +184,8 @@ function createWindow(profile: any) {
     },
   });
   mainWindow.contentView.addChildView(view);
+  // AI 页面视图透明（让窗口背景图透出；否则 WebContentsView 默认白底会盖住）
+  try { view.setBackgroundColor('#00000000'); } catch (_) {}
 
   // ========== 插件覆盖层窗口（透明、置顶、鼠标穿透） ==========
   // 用独立 BrowserWindow（而非 WebContentsView）——因为只有 BrowserWindow 支持
