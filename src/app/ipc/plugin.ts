@@ -249,6 +249,13 @@ function applyAiPageBgCss(wc: any): void {
     '.c08e6e93 { color: #d8dbe2 !important; }',
     '.c08e6e93:hover { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
     '.c08e6e93:focus, .c08e6e93:focus-visible { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
+    // 父级 <a> 链接容器：默认透明，悬停时半透明
+    'a._546d736 { background-color: transparent !important; color: #d8dbe2 !important; }',
+    'a._546d736:hover, a._546d736:focus { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
+    'a._546d736:hover *, a._546d736:focus * { color: #ffffff !important; }',
+    // 侧边栏所有 a 标签兜底
+    'div[class*="a2f3d50e"] a, div[class*="b8812f16"] a { background-color: transparent !important; color: #d8dbe2 !important; }',
+    'div[class*="a2f3d50e"] a:hover, div[class*="b8812f16"] a:hover { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
     // 选中项（active/current）用主题色半透明
     '[class*="active"].c08e6e93, [class*="selected"].c08e6e93, .c08e6e93[data-active="true"] { background-color: rgba(77,107,254,0.2) !important; color: #e8eaed !important; }',
     // DeepSeek 侧边栏内部所有 hover 背景统一半透明
