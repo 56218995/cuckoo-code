@@ -580,6 +580,11 @@ function createWindow(profile: any) {
       sessionStore.tryRestoreSessionFromUrl(view);
       pushUrlState(view);
       autoConnectMcp();
+      // AI 页面透明背景（窗口背景图透出）
+      try {
+        const m = require('./ipc/plugin.js');
+        if (m && typeof m.reapplyAiPageBgCss === 'function') m.reapplyAiPageBgCss(view.webContents);
+      } catch (_) {}
     }
   });
 

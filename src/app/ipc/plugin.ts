@@ -148,8 +148,15 @@ function writeBgFile(v: { pluginId: string; url: string; overlay: string } | nul
     console.log('[bg] 已写入', f, '| 存在:', fs.existsSync(f));
   } catch (e) { console.error('[bg] writeBgFile 失败:', e); }
 }
-let shellBackground: { pluginId: string; url: string; overlay: string } | null = readBgFile();
+let shellBackground: { pluginId: string; url: string; overlay: string } | null = null;
+/** 惰性初始化：首次使用时才读文件（此时 app.setPath('userData') 已完成） */
+let shellBgLoaded = false;
+function ensureShellBg(): { pluginId: string; url: string; overlay: string } | null {
+  if (!shellBgLoaded) { shellBackground = readBgFile(); shellBgLoaded = true; }
+  return shellBackground;
+}
 const pushBackground = (): void => {
+  ensureShellBg();
   const mainWin: any = windowState.getMainWindow ? windowState.getMainWindow() : null;
   const ctx = windowState.getMainContext ? windowState.getMainContext() : null;
   // 偏移用 harness view 的实际 bounds（它的位置才是对齐基准）
@@ -173,11 +180,51 @@ const pushBackground = (): void => {
       }
     }
   } catch (_) {}
+  // AI 页面（DeepSeek 等）注入透明 CSS，让窗口背景透出来
+  try {
+    for (const c of windowState.getAllContexts()) {
+      const v = (c as any).view;
+      if (!v || !v.webContents || v.webContents.isDestroyed()) continue;
+      applyAiPageBgCss(v.webContents);
+    }
+  } catch (_) {}
 };
+
+/**
+ * 向 AI 页面注入/移除透明背景 CSS。
+ * 用 executeJavaScript 插入 <style> 标签（insertCSS 在页面未就绪时会丢）。
+ * 有背景时让 body/根容器透明，透出窗口背景；无背景时移除注入。
+ */
+function applyAiPageBgCss(wc: any): void {
+  if (!wc || wc.isDestroyed()) return;
+  if (!ensureShellBg()) {
+    // 无背景：移除注入
+    try {
+      wc.executeJavaScript('(function(){var s=document.getElementById("__ck_ai_bg");if(s)s.remove();})()', true).catch(() => {});
+    } catch (_) {}
+    return;
+  }
+  // 有背景：让最外层容器透明，保留卡片/输入框实体背景
+  const css = [
+    'html, body { background-color: transparent !important; background-image: none !important; }',
+    '#root, #__next, #app, #app-root, .app, .chat-container, .main-container { background-color: transparent !important; background-image: none !important; }',
+    '.ds-layout, [class*="layout-container"], [class*="page-container"] { background-color: transparent !important; }',
+  ].join(' ');
+  const js = '(function(){' +
+    'var old=document.getElementById("__ck_ai_bg");if(old)old.remove();' +
+    'var s=document.createElement("style");s.id="__ck_ai_bg";' +
+    's.textContent=' + JSON.stringify(css) + ';' +
+    '(document.head||document.documentElement).appendChild(s);' +
+    '})()';
+  try { wc.executeJavaScript(js, true).catch(() => {}); } catch (_) {}
+}
 
 /** 供其他模块调用：设置背景并推送（不写文件时传 persist=false） */
 function applyShellBackground(bg: { url: string; overlay: string } | null, persist = true): void {
+  ensureShellBg();
+  ensureShellBg();
   shellBackground = bg ? { pluginId: shellBackground?.pluginId || "external", url: bg.url, overlay: bg.overlay } : null;
+  shellBgLoaded = true;
   if (persist) { try { writeBgFile(shellBackground); } catch (_) { /* ignore */ } }
   pushBackground();
 }
@@ -802,6 +849,7 @@ function registerPluginIpc(): void {
       if (url === null || url === undefined) { shellBackground = null; }
       else shellBackground = { pluginId: String(pluginId || ''), url: String(url), overlay: String(overlay || 'rgba(10,12,20,0.5)') };
       writeBgFile(shellBackground);
+      shellBgLoaded = true;
       pushBackground();
       return { success: true };
     } catch (err: any) { return { success: false, error: err && err.message ? err.message : String(err) }; }
@@ -833,7 +881,7 @@ function registerPluginIpc(): void {
     let winW = 0, winH = 0;
     try { const sz = mainWin.getContentSize(); winW = sz[0]; winH = sz[1]; } catch (_) {}
     // 优先返回当前激活主题的 background（权威），否则用全局 shellBackground
-    let bg = shellBackground;
+    let bg = ensureShellBg();
     try {
       const tm = await import('../theme/theme-manager.js');
       const activeBg = (tm as any).getActiveBackground ? (tm as any).getActiveBackground() : null;
@@ -966,4 +1014,9 @@ function registerPluginIpc(): void {
   });
 }
 
-export { registerPluginIpc, applyShellBackground };
+/** 供 entry.ts 在 AI 页面加载完成后调用，重新注入透明背景 CSS */
+function reapplyAiPageBgCss(wc: any): void {
+  try { applyAiPageBgCss(wc); } catch (_) {}
+}
+
+export { registerPluginIpc, applyShellBackground, reapplyAiPageBgCss };
