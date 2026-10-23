@@ -256,6 +256,10 @@ function applyAiPageBgCss(wc: any): void {
     // 侧边栏所有 a 标签兜底
     'div[class*="a2f3d50e"] a, div[class*="b8812f16"] a { background-color: transparent !important; color: #d8dbe2 !important; }',
     'div[class*="a2f3d50e"] a:hover, div[class*="b8812f16"] a:hover { background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; }',
+    // 左下角用户名容器（momo）透明
+    '._2afd28d { background-color: transparent !important; }',
+    '._2afd28d:hover { background-color: rgba(255,255,255,0.08) !important; }',
+    '._2afd28d * { color: #d8dbe2 !important; }',
     // 选中项（active/current）用主题色半透明
     '[class*="active"].c08e6e93, [class*="selected"].c08e6e93, .c08e6e93[data-active="true"] { background-color: rgba(77,107,254,0.2) !important; color: #e8eaed !important; }',
     // DeepSeek 侧边栏内部所有 hover 背景统一半透明
