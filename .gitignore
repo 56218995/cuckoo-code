@@ -56,6 +56,10 @@ resources/runtime/
 # Playwright MCP 产物（快照/截图）
 .playwright-mcp/
 
+# 打包产物（绿色版 zip，体积大，不进仓库）
+*-green.zip
+cuckoo-code-*.zip
+
 # Coverage reports
 coverage.lcov
 test/coverage.lcov
