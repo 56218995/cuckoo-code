@@ -239,6 +239,36 @@ function applyAiPageBgCss(wc: any): void {
     '._1d72f01 { background-image: none !important; background: transparent !important; }',
     // 底部按钮悬停底色半透明
     '.ede5bc47 { background-color: rgba(255,255,255,0.08) !important; }',
+    // 代码块：深色背景（浅色代码在深色底上才可读）
+    '.md-code-block, .md-code-block-light { background-color: rgba(20,23,30,0.85) !important; color: #d8dbe2 !important; }',
+    '.md-code-block-banner-wrap, .md-code-block-banner { background-color: rgba(30,34,42,0.9) !important; color: #d8dbe2 !important; }',
+    '.md-code-block pre, .md-code-block code { background-color: transparent !important; color: #d8dbe2 !important; }',
+    '.md-code-block * { color: #d8dbe2 !important; }',
+    '.md-code-block-banner * { color: #d8dbe2 !important; }',
+    // 输入框底部按钮区：透明（不要白色条）
+    '._0fcaa63 { background-color: transparent !important; }',
+    // 输入框/卡片容器（白色）：保留白底，但文字用深色
+    '._77cefa5 { background-color: rgba(255,255,255,0.92) !important; }',
+    '._77cefa5 textarea, ._77cefa5 input, ._77cefa5 span, ._77cefa5 div, ._77cefa5 p, ._77cefa5 li { color: #0f1115 !important; }',
+    '._77cefa5 * { color: #0f1115 !important; }',
+    // 但输入框的占位提示保持灰色
+    '._77cefa5 textarea::placeholder { color: #9ca3af !important; }',
+    // 深色背景上的卡片容器（如工具结果）：深底 + 浅字
+    'div[class*="tool-result"], div[class*="result-card"], div[class*="message-card"] { background-color: rgba(24,27,34,0.9) !important; }',
+    'div[class*="tool-result"] *, div[class*="result-card"] *, div[class*="message-card"] * { color: #e4e6eb !important; }',
+    // 行内代码/高亮块：深色背景 + 浅色文字（避免白底浅字）
+    '.ds-markdown code, .ds-markdown [class*="inline-code"], .ds-markdown span[style*="background"] { background-color: rgba(255,255,255,0.12) !important; color: #e8eaed !important; }',
+    '.ds-markdown code *, .ds-markdown [class*="inline-code"] * { color: #e8eaed !important; }',
+    // 底部固定栏（输入框下方状态栏）透明
+    'div[style*="position: fixed"][style*="bottom"] { background-color: transparent !important; }',
+    // 对话项右侧操作按钮的渐变遮罩：改为深色半透明（跟随主题）
+    '._254829d { background-image: linear-gradient(90deg, rgba(30,33,40,0) 0%, rgba(30,33,40,0.8) 20%, rgb(30,33,40) 100%) !important; }',
+    // 底部输入区渐变遮罩（白底）改透明（含子元素）
+    '._871cbca { background-image: none !important; background-color: transparent !important; }',
+    '.d72636e2 { background-image: none !important; background-color: transparent !important; }',
+    '.aaff8b8f { background-color: transparent !important; }',
+    // 弹窗模态遮罩透明（避免压暗整个页面）
+    '._4cbcd96, [class*="modal-mask"], [class*="overlay-mask"] { background-color: transparent !important; }',
     // 大字号标题/欢迎语在深色背景上改浅色（>18px 的文字）
     'body :is(h1,h2,h3,h4) { color: #e8eaed !important; text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important; }',
     // 主内容区的欢迎语（中间的大标题）
@@ -264,6 +294,11 @@ function applyAiPageBgCss(wc: any): void {
     '[class*="active"].c08e6e93, [class*="selected"].c08e6e93, .c08e6e93[data-active="true"] { background-color: rgba(77,107,254,0.2) !important; color: #e8eaed !important; }',
     // DeepSeek 侧边栏内部所有 hover 背景统一半透明
     'div[class*="a2f3d50e"] [class*="item"]:hover, div[class*="b8812f16"] [class*="item"]:hover { background-color: rgba(255,255,255,0.08) !important; }',
+    // 用户消息卡片（浅蓝底）：最高优先级，覆盖所有其他文字颜色规则
+    '.fbb737a4, .fbb737a4 * { color: #0f1115 !important; }',
+    '.fbb737a4 code { background-color: rgba(0,0,0,0.06) !important; color: #0f1115 !important; }',
+    '.fbb737a4 span, .fbb737a4 div, .fbb737a4 p, .fbb737a4 li, .fbb737a4 strong, .fbb737a4 em { color: #0f1115 !important; }',
+    '.fbb737a4 { background-color: rgba(237,243,254,0.92) !important; }',
   ].join(' ');
   const js = '(function(){' +
     'var old=document.getElementById("__ck_ai_bg");if(old)old.remove();' +
